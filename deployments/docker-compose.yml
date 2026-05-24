@@ -1,0 +1,98 @@
+# docker-compose.yml
+version: '3.5'
+
+networks:
+  cookagent_net:
+
+services:
+  etcd:
+    container_name: cookagent_etcd
+    image: quay.io/coreos/etcd:v3.5.16
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_ENABLE_V2=true
+    volumes:
+      - ./volumes/etcd:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    networks:
+      - cookagent_net
+    restart: always
+
+  minio:
+    container_name: cookagent_minio
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9001:9000"  # Expose MinIO UI on a different port to avoid conflicts
+    volumes:
+      - ./volumes/minio:/data
+    command: server /data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - cookagent_net
+    restart: always
+
+  milvus:
+    container_name: cookagent_milvus
+    image: milvusdb/milvus:v2.5.14
+    command: ["milvus", "run", "standalone"]
+    environment:
+      - ETCD_ENDPOINTS=etcd:2379
+      - MINIO_ADDRESS=minio:9000
+    volumes:
+      - ./volumes/milvus:/var/lib/milvus
+    ports:
+      - "19530:19530" # Milvus gRPC port
+      - "9091:9091"   # Milvus HTTP port
+    depends_on:
+      - etcd
+      - minio
+    networks:
+      - cookagent_net
+    restart: always
+
+  redis:
+    container_name: cookagent_redis
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./volumes/redis:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cookagent_net
+    restart: always
+
+  postgres:
+    container_name: cookagent_postgres
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: cookagent
+      POSTGRES_USER: cookagent
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-cookagent_secret}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./volumes/postgres:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cookagent -d cookagent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cookagent_net
+    restart: always

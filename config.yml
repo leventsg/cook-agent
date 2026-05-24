@@ -1,0 +1,317 @@
+# =============================================================================
+# CookAgent Configuration File
+# =============================================================================
+# This file contains all application configuration for the CookAgent RAG system.
+# Sensitive values (API keys, passwords) should be stored in .env file.
+#
+# Configuration is organized into logical sections:
+# 1. LLM Provider Configuration (layered: fast / normal / vision)
+# 2. Embedding Model Configuration
+# 3. Vector Store Configuration
+# 4. RAG Pipeline Configuration (retrieval, reranking, cache)
+# 5. Vision/Multimodal Configuration
+# 6. Evaluation Configuration
+# 7. Web Search Configuration
+# 8. Data Source Configuration
+# 9. Database Connection Configuration
+# =============================================================================
+
+# =============================================================================
+# 1. LLM Provider Configuration (Layered: fast / normal / vision)
+# =============================================================================
+# The system uses three tiers of LLM models:
+#   - fast: Optimized for low latency (intent detection, query rewriting)
+#   - normal: Optimized for quality (final response generation)
+#   - vision: Multimodal model for image analysis
+#
+# Each tier supports:
+#   - model_names: List of models (one randomly selected per call)
+#   - base_url: API endpoint URL
+#   - api_key: Loaded from .env (FAST_LLM_API_KEY / LLM_API_KEY)
+#   - temperature: Randomness control (0.0-2.0)
+#   - max_tokens: Maximum tokens to generate
+# =============================================================================
+
+llm:
+  # Fast tier - Low latency models for auxiliary tasks
+  fast:
+    model_names:
+      # - "XiaomiMiMo/MiMo-V2-Flash"
+      # - "deepseek-ai/DeepSeek-V3.2"
+      # - "Qwen/Qwen3-235B-A22B-Instruct-2507"
+      - "qwen3-235b-a22b-instruct-2507"
+      # - "Qwen/Qwen3-VL-235B-A22B-Instruct"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    # api_key: Loaded from .env (FAST_LLM_API_KEY or LLM_API_KEY)
+    temperature: 1
+    max_tokens: 131072
+
+  # Normal tier - High quality models for main generation
+  normal:
+    model_names:
+      # - "Qwen/Qwen3-VL-30B-A3B-Instruct"
+      - "qwen3-vl-30b-a3b-instruct"
+      # - "deepseek-ai/DeepSeek-V3.2"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    # api_key: Loaded from .env (LLM_API_KEY)
+    temperature: 1
+    max_tokens: 131072
+
+  # Vision tier - Multimodal model for image understanding
+  vision:
+    model_names:
+      # - "Qwen/QVQ-72B-Preview"
+      - "qwen3-omni-flash"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    # api_key: Loaded from .env (VISION_API_KEY or LLM_API_KEY)
+    temperature: 0.7
+    max_tokens: 4096
+    # Image processing settings
+    max_image_size_mb: 10.0
+    # Maximum request timeout in seconds
+    request_timeout: 120
+
+# =============================================================================
+# 2. Embedding Model Configuration
+# =============================================================================
+# Used for converting text to vectors for semantic search.
+# =============================================================================
+
+embedding:
+  # HuggingFace model name for text embedding
+  # BGE models are optimized for Chinese text
+  model_name: "BAAI/bge-small-zh-v1.5"
+
+# =============================================================================
+# 3. Vector Store Configuration
+# =============================================================================
+# Milvus vector database configuration.
+# Connection details are in the database.milvus section below.
+# =============================================================================
+
+vector_store:
+  # Currently only Milvus is supported
+  type: "milvus"
+
+  # Collection names for different data types
+  collection_names:
+    # Global recipe collection (HowToCook)
+    recipes: "cook_agent_recipes"
+    # User's personal documents collection
+    personal: "cook_agent_personal_docs"
+
+# =============================================================================
+# 4. RAG Pipeline Configuration
+# =============================================================================
+
+# 4.1 Retrieval Configuration
+# ------------------------------------------------------------------------------
+retrieval:
+  # Number of documents to retrieve
+  top_k: 9
+  # Score threshold for filtering results (0.0-1.0)
+  score_threshold: 0.2
+  # Ranking method: "weighted" or "rrf" (Reciprocal Rank Fusion)
+  ranker_type: "weighted"
+  # Weights for hybrid ranking [dense_vector, sparse_bm25]
+  ranker_weights: [0.8, 0.2]
+
+# 4.2 Reranker Configuration
+# ------------------------------------------------------------------------------
+# Reranker further refines retrieval results for better relevance.
+# Uses the normal LLM API key by default (can override with RERANKER_API_KEY)
+reranker:
+  enabled: true
+  # Reranker provider type
+  type: "siliconflow"
+  # Model name for reranking
+  model_name: "Qwen/Qwen3-Reranker-8B"
+  # API endpoint for reranking
+  base_url: "https://api.siliconflow.cn/v1/rerank"
+  # api_key: Loaded from .env (RERANKER_API_KEY or falls back to LLM_API_KEY)
+  temperature: 0.0
+  max_tokens: 8192
+  # Minimum score threshold for reranked results
+  score_threshold: 0.2
+
+# 4.3 Cache Configuration
+# ------------------------------------------------------------------------------
+# Two-level caching strategy:
+#   - L1: Exact match (Redis) - fast lookup for identical queries
+#   - L2: Semantic match (Milvus) - handles similar queries via vector similarity
+#
+# Note: Only caches Query -> Retrieved Documents (Context), NOT LLM responses.
+# Connection settings are in database.redis and database.milvus sections below.
+# ------------------------------------------------------------------------------
+cache:
+  enabled: true
+  # Cache TTL in seconds (applies to both L1 and L2)
+  ttl: 3600  # 1 hour
+
+  # L2 Semantic Cache Configuration
+  l2_enabled: true
+  # Similarity threshold for L2 cache hits (0.0-1.0)
+  similarity_threshold: 0.92
+  # Collection name for L2 cache storage
+  vector_collection: "cookagent_retrieval_cache"
+  # L2 cache credentials loaded from .env (MILVUS_USER / MILVUS_PASSWORD)
+
+# =============================================================================
+# 5. Vision/Multimodal Configuration
+# =============================================================================
+# Domain detection settings for vision analysis.
+# Model configuration is under llm.vision.
+# =============================================================================
+
+vision:
+  model:
+    # Enable/disable vision features
+    enabled: true
+    # Model configuration (OpenAI-compatible API)
+    #model_name: "Qwen/QVQ-72B-Preview"
+    model_name: "qwen3-omni-flash"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    # api_key: Loaded from .env (VISION_API_KEY or LLM_API_KEY)
+    temperature: 0.7
+    max_tokens: 4096
+    # Image processing settings
+    max_image_size_mb: 10.0
+    # Maximum request timeout in seconds
+    request_timeout: 120
+
+# =============================================================================
+# 6. RAG Evaluation Configuration (RAGAS)
+# =============================================================================
+# Configuration for quality monitoring using the RAGAS framework.
+# =============================================================================
+
+evaluation:
+  enabled: true
+  # Async mode: Run evaluation in background without blocking response
+  async_mode: true
+  # Sampling rate (0.0-1.0): Fraction of requests to evaluate
+  # 1.0 = evaluate all requests, 0.1 = evaluate 10% of requests
+  sample_rate: 1.0
+  # RAGAS metrics to compute
+  # Available: "faithfulness", "answer_relevancy", "context_precision", "context_recall"
+  metrics:
+    - "faithfulness"
+    - "answer_relevancy"
+  # LLM tier to use for evaluation (fast recommended for cost efficiency)
+  llm_type: "fast"
+  # Evaluation timeout in seconds
+  timeout_seconds: 600
+  # Quality alert thresholds
+  alert_thresholds:
+    faithfulness: 0.3
+    answer_relevancy: 0.5
+
+# =============================================================================
+# 7. Web Search Configuration (Tavily)
+# =============================================================================
+# Configuration for real-time web search enhancement.
+# =============================================================================
+
+web_search:
+  enabled: true
+  # Maximum number of search results to return
+  max_results: 6
+  # api_key: Loaded from .env (WEB_SEARCH_API_KEY)
+
+# =============================================================================
+# 8. Image Generation Configuration (OpenAI DALL-E)
+# =============================================================================
+# Configuration for AI image generation using OpenAI's DALL-E 3 model.
+# =============================================================================
+
+image_generation:
+  enabled: true
+  model: "Kwai-Kolors/Kolors"
+  base_url: "https://api.siliconflow.cn/v1"
+  # api_key: Loaded from .env (OPENAI_IMAGE_API_KEY)
+
+# =============================================================================
+# 9. MCP (Model Context Protocol) Configuration
+# =============================================================================
+# Configuration for MCP server integrations.
+# =============================================================================
+
+mcp:
+  # Amap (高德地图) MCP server configuration
+  amap:
+    enabled: true
+  # amap_api_key: Loaded from .env (AMAP_API_KEY)
+
+# =============================================================================
+# 10. Data Source Configuration
+# =============================================================================
+# Configuration for external data sources (e.g., HowToCook recipe library).
+# =============================================================================
+
+data_source:
+  howtocook:
+    # Subdirectory path for dishes
+    path_suffix: "dishes"
+    # Subdirectory path for cooking tips
+    tips_path_suffix: "tips"
+    # Markdown headers to split documents on
+    headers_to_split_on:
+      - ["#", "header_1"]
+      - ["##", "header_2"]
+
+# =============================================================================
+# 11. Database Connection Configuration
+# =============================================================================
+# Connection details for PostgreSQL, Redis, and Milvus.
+# Passwords should be loaded from .env file for security.
+# =============================================================================
+
+database:
+  # PostgreSQL - Primary relational database
+  postgres:
+    host: "localhost"
+    port: 5432
+    database: "cookagent"
+    user: "cookagent"
+    # password: Loaded from .env (DATABASE_PASSWORD)
+    # Connection pool settings
+    pool_size: 20
+    max_overflow: 30
+    pool_timeout: 30
+    pool_recycle: 1800
+    # Echo SQL queries (for debugging)
+    echo: false
+
+  # Redis - Key-value store and L1 cache
+  redis:
+    host: "localhost"
+    port: 6379
+    db: 0
+    # password: Loaded from .env (REDIS_PASSWORD, optional)
+
+  # Milvus - Vector database for embeddings and L2 cache
+  milvus:
+    host: "localhost"
+    port: 19530
+    # user: Loaded from .env (MILVUS_USER, optional)
+    # password: Loaded from .env (MILVUS_PASSWORD, optional)
+    # secure: false  # Set to true for TLS connection
+
+# =============================================================================
+# 12. Path Configuration
+# =============================================================================
+# File system paths for data storage.
+# =============================================================================
+
+paths:
+  # Base path for the HowToCook recipe data
+  base_data_path: "data/HowToCook"
+
+# =============================================================================
+# 13. GitHub Issues Configuration (Optional)
+# =============================================================================
+# Configuration for the self-hosted GitHub issues feature.
+# =============================================================================
+
+blank_issues_enabled: true
+contact_links: []

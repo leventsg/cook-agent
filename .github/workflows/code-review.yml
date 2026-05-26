@@ -20,7 +20,7 @@ jobs:
         with:
           max-length: 50000
           chat-token: ${{ secrets.DEEPSEEK_CHAT_TOKEN }}
-          model: deepseek-v4-flash
+          model: deepseek-chat
           base-url: https://api.deepseek.com
           sys-prompt: >
             # 角色

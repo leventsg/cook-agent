@@ -18,6 +18,7 @@ jobs:
       - name: DeepSeek Code Review
         uses: hustcer/deepseek-review@v1
         with:
+          max-length: 50000
           chat-token: ${{ secrets.DEEPSEEK_CHAT_TOKEN }}
           model: deepseek-v4-flash
           base-url: https://api.deepseek.com

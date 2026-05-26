@@ -1,0 +1,13 @@
+{
+    "name": "ai-codereview",
+    "version": "0.1.0",
+    "description": "在 git 提交时调用 DeepSeek 模型进行代码自动审查的简单工具",
+    "main": "scripts/deepseek-review.js",
+    "bin": {
+        "deepseek-review": "scripts/deepseek-review.js"
+    },
+    "scripts": {
+        "review": "node scripts/deepseek-review.js"
+    },
+    "license": "MIT"
+}

@@ -1,0 +1,32 @@
+#!/bin/sh
+
+# 简单的 pre-commit hook 示例：
+# 在执行 git commit 时，自动调用 DeepSeek 代码审查脚本。
+#
+# 使用前请确保：
+#   1. 仓库内已存在 tools/ai_codereview/scripts/deepseek-review.js
+#   2. 已在终端设置好 DeepSeek 的 API Key：
+#        export DEEPSEEK_API_KEY="你的_API_Key"
+#   3. （推荐）在本仓库执行：
+#        git config core.hooksPath .githooks
+#
+# 若你不想在每次提交时都执行审查，可以在这里加条件判断（例如只对特定分支执行）。
+
+echo "[pre-commit] 调用 DeepSeek 进行代码审查..."
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+
+if [ -z "$REPO_ROOT" ]; then
+  echo "[pre-commit] 无法定位仓库根目录，终止提交。"
+  exit 1
+fi
+
+node "$REPO_ROOT/tools/ai_codereview/scripts/deepseek-review.js"
+STATUS=$?
+
+if [ $STATUS -ne 0 ]; then
+  echo "[pre-commit] DeepSeek 代码审查脚本执行失败，终止提交。"
+  exit $STATUS
+fi
+
+exit 0

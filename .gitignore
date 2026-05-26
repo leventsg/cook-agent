@@ -12,6 +12,7 @@ __pycache__/
 .DS_Store
 .idea/
 .vscode/
+.code-review-graph/
 
 # Build artifacts
 build/
@@ -20,6 +21,7 @@ dist/
 
 # Secrets
 .env
+.env.local
 /data/debug/
 
 # Logs

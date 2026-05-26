@@ -10,8 +10,11 @@ CookAgent 配置加载模块。
 '''
 import os
 import yaml
+
 from pathlib import Path
 from dotenv import load_dotenv
+from typing import Any, Dict
+
 from app.config.llm_config import LLMConfig
 from app.config.database_config import DatabaseConfig
 
@@ -31,7 +34,7 @@ def load_llm_config() -> LLMConfig:
     加载全局 LLM 提供商配置。
     环境变量说明：
     LLM_API_KEY：普通 LLM 的 API Key
-    FAST_LLM_API_KEY / LLM_FAST_API_KEY：fast LLM 的 API Key（未配置时将回退使用 LLM_API_KEY）
+    FAST_LLM_API_KEY / LLM_FAST_API_KEY：fast LLM 的 API Key
     VISION_API_KEY：视觉 LLM 的 API Key（未配置时将回退使用 LLM_API_KEY）
     '''
     config_data = _load_config_data()

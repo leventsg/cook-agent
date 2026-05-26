@@ -22,8 +22,8 @@ jobs:
         uses: hustcer/deepseek-review@v1
         with:
           chat-token: ${{ secrets.DEEPSEEK_CHAT_TOKEN }}
-          model: ${{ secrets.DEEPSEEK_CHAT_MODEL }}
-          base-url: ${{ secrets.DEEPSEEK_CHAT_BASE_URL }}
+          model: deepseek-v4-flash
+          base-url: https://api.deepseek.com
           sys-prompt: >
             # 角色
             你是 CookAgent 项目的资深代码审查专家。这个项目是一个基于 FastAPI、React、LangChain、Milvus、PostgreSQL、Redis 的烹饪场景 LLM 应用，包含普通对话、Agent、RAG、个人知识库、视觉模型和评测统计。

@@ -1,39 +1,37 @@
+# CookAgent 配置文件
 # =============================================================================
-# CookAgent Configuration File
-# =============================================================================
-# This file contains all application configuration for the CookAgent RAG system.
-# Sensitive values (API keys, passwords) should be stored in .env file.
+# 本文件包含 CookAgent RAG 系统的全部应用配置。
+# 敏感信息（如 API Key、密码等）应存储于 .env 文件中。
 #
-# Configuration is organized into logical sections:
-# 1. LLM Provider Configuration (layered: fast / normal / vision)
-# 2. Embedding Model Configuration
-# 3. Vector Store Configuration
-# 4. RAG Pipeline Configuration (retrieval, reranking, cache)
-# 5. Vision/Multimodal Configuration
-# 6. Evaluation Configuration
-# 7. Web Search Configuration
-# 8. Data Source Configuration
-# 9. Database Connection Configuration
+# 配置按照逻辑模块进行组织：
+# 1. LLM 提供商配置（分层：fast / normal / vision）
+# 2. Embedding 模型配置
+# 3. 向量存储配置
+# 4. RAG Pipeline 配置（检索、重排序、缓存）
+# 5. Vision / 多模态配置
+# 6. 评测配置
+# 7. Web 搜索配置
+# 8. 数据源配置
+# 9. 数据库连接配置
 # =============================================================================
 
 # =============================================================================
-# 1. LLM Provider Configuration (Layered: fast / normal / vision)
+# 1. LLM 提供商配置（分层：fast / normal / vision）
 # =============================================================================
-# The system uses three tiers of LLM models:
-#   - fast: Optimized for low latency (intent detection, query rewriting)
-#   - normal: Optimized for quality (final response generation)
-#   - vision: Multimodal model for image analysis
+# 系统采用三层 LLM 模型架构：
+#   - fast：针对低延迟场景优化（意图识别、查询重写等）
+#   - normal：针对生成质量优化（最终响应生成）
+#   - vision：用于图像分析的多模态模型
 #
-# Each tier supports:
-#   - model_names: List of models (one randomly selected per call)
-#   - base_url: API endpoint URL
-#   - api_key: Loaded from .env (FAST_LLM_API_KEY / LLM_API_KEY)
-#   - temperature: Randomness control (0.0-2.0)
-#   - max_tokens: Maximum tokens to generate
+# 每一层均支持以下配置项：
+#   - model_names：模型列表（每次调用随机选择一个）
+#   - base_url：API 服务地址
+#   - api_key：从 .env 加载的 API Key（FAST_LLM_API_KEY / LLM_API_KEY）
+#   - temperature：生成随机性控制参数（0.0 - 2.0）
+#   - max_tokens：最大生成 Token 数
 # =============================================================================
 
 llm:
-  # Fast tier - Low latency models for auxiliary tasks
   fast:
     model_names:
       # - "XiaomiMiMo/MiMo-V2-Flash"
@@ -42,275 +40,252 @@ llm:
       - "qwen3-235b-a22b-instruct-2507"
       # - "Qwen/Qwen3-VL-235B-A22B-Instruct"
     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    # api_key: Loaded from .env (FAST_LLM_API_KEY or LLM_API_KEY)
     temperature: 1
     max_tokens: 131072
 
-  # Normal tier - High quality models for main generation
+
   normal:
     model_names:
       # - "Qwen/Qwen3-VL-30B-A3B-Instruct"
       - "qwen3-vl-30b-a3b-instruct"
       # - "deepseek-ai/DeepSeek-V3.2"
     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    # api_key: Loaded from .env (LLM_API_KEY)
     temperature: 1
     max_tokens: 131072
 
-  # Vision tier - Multimodal model for image understanding
   vision:
     model_names:
       # - "Qwen/QVQ-72B-Preview"
       - "qwen3-omni-flash"
     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    # api_key: Loaded from .env (VISION_API_KEY)
     temperature: 0.7
     max_tokens: 4096
-    # Image processing settings
     max_image_size_mb: 10.0
-    # Maximum request timeout in seconds
     request_timeout: 120
 
 # =============================================================================
-# 2. Embedding Model Configuration
+# 2. Embedding 模型配置
 # =============================================================================
-# Used for converting text to vectors for semantic search.
+# 用于将文本转换为向量，以支持语义检索。
 # =============================================================================
 
 embedding:
-  # HuggingFace model name for text embedding
-  # BGE models are optimized for Chinese text
+  # 用于文本向量化的 HuggingFace Embedding 模型名称
+  # BGE 系列模型针对中文文本进行了优化
   model_name: "BAAI/bge-small-zh-v1.5"
 
 # =============================================================================
-# 3. Vector Store Configuration
+# 3. 向量存储配置
 # =============================================================================
-# Milvus vector database configuration.
-# Connection details are in the database.milvus section below.
+# Milvus 向量数据库配置。
+# 连接相关配置位于下方的 database.milvus 配置节中。
 # =============================================================================
 
 vector_store:
-  # Currently only Milvus is supported
   type: "milvus"
 
-  # Collection names for different data types
+  # 不同数据类型的集合名称
   collection_names:
-    # Global recipe collection (HowToCook)
+    # 全局食谱集合（HowToCook）
     recipes: "cook_agent_recipes"
-    # User's personal documents collection
+    # 用户个人文档集合（HowToCook）
     personal: "cook_agent_personal_docs"
 
 # =============================================================================
-# 4. RAG Pipeline Configuration
+# 4. RAG Pipeline 配置（检索、重排序、缓存）
 # =============================================================================
 
-# 4.1 Retrieval Configuration
+# 4.1 检索配置
 # ------------------------------------------------------------------------------
 retrieval:
-  # Number of documents to retrieve
+  # 检索文档数（Top-K）
   top_k: 9
-  # Score threshold for filtering results (0.0-1.0)
+  # 检索结果过滤阈值（0.0-1.0）
   score_threshold: 0.2
-  # Ranking method: "weighted" or "rrf" (Reciprocal Rank Fusion)
+  # 重排序模型类型（weighted / rrf）
   ranker_type: "weighted"
-  # Weights for hybrid ranking [dense_vector, sparse_bm25]
+  # 混合排序权重（dense_vector / sparse_bm25）
   ranker_weights: [0.8, 0.2]
 
-# 4.2 Reranker Configuration
+# 4.2 重排序配置
 # ------------------------------------------------------------------------------
-# Reranker further refines retrieval results for better relevance.
-# Uses the normal LLM API key by default (can override with RERANKER_API_KEY)
+# Reranker（重排序模型）会进一步优化检索结果，以提升结果相关性。
+# 默认使用 normal 层 LLM 的 API Key（可通过 RERANKER_API_KEY 单独覆盖）
 reranker:
   enabled: true
-  # Reranker provider type
+  # 目前仅支持 siliconflow，未来可扩展更多提供商
   type: "siliconflow"
-  # Model name for reranking
   model_name: "Qwen/Qwen3-Reranker-8B"
-  # API endpoint for reranking
   base_url: "https://api.siliconflow.cn/v1/rerank"
-  # api_key: Loaded from .env (RERANKER_API_KEY or falls back to LLM_API_KEY)
   temperature: 0.0
   max_tokens: 8192
-  # Minimum score threshold for reranked results
   score_threshold: 0.2
 
-# 4.3 Cache Configuration
+# 4.3 缓存配置
 # ------------------------------------------------------------------------------
-# Two-level caching strategy:
-#   - L1: Exact match (Redis) - fast lookup for identical queries
-#   - L2: Semantic match (Milvus) - handles similar queries via vector similarity
+# 两级缓存策略：
+#   - L1：精确匹配缓存（Redis）—— 用于对完全相同查询进行快速查找
+#   - L2：语义匹配缓存（Milvus）—— 基于向量相似度处理相似查询
 #
-# Note: Only caches Query -> Retrieved Documents (Context), NOT LLM responses.
-# Connection settings are in database.redis and database.milvus sections below.
+# 注意：
+# 缓存的仅为「Query -> Retrieved Documents（检索上下文）」映射，
+# 不缓存 LLM 最终生成的响应结果。
+#
+# Redis 与 Milvus 的连接配置位于下方的
+# database.redis 与 database.milvus 配置节中。
 # ------------------------------------------------------------------------------
 cache:
   enabled: true
-  # Cache TTL in seconds (applies to both L1 and L2)
+  # 缓存过期时间（秒），同时应用于 L1 和 L2 缓存
   ttl: 3600  # 1 hour
-
-  # L2 Semantic Cache Configuration
+  # L2 语义匹配缓存配置
   l2_enabled: true
-  # Similarity threshold for L2 cache hits (0.0-1.0)
+  # L2 缓存相似度阈值（0.0-1.0）
   similarity_threshold: 0.92
-  # Collection name for L2 cache storage
+  # L2 缓存存储名称（向量集合）
   vector_collection: "cookagent_retrieval_cache"
-  # L2 cache credentials loaded from .env (MILVUS_USER / MILVUS_PASSWORD)
 
 # =============================================================================
-# 5. Vision/Multimodal Configuration
+# 5. Vision / 多模态配置
 # =============================================================================
-# Domain detection settings for vision analysis.
-# Model configuration is under llm.vision.
+# 用于视觉分析的领域检测配置。
+# 模型相关配置位于 llm.vision 配置节中。
 # =============================================================================
 
 vision:
   model:
-    # Enable/disable vision features
     enabled: true
-    # Model configuration (OpenAI-compatible API)
-    #model_name: "Qwen/QVQ-72B-Preview"
     model_name: "qwen3-omni-flash"
     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    # api_key: Loaded from .env (VISION_API_KEY or LLM_API_KEY)
     temperature: 0.7
     max_tokens: 4096
-    # Image processing settings
     max_image_size_mb: 10.0
-    # Maximum request timeout in seconds
     request_timeout: 120
 
 # =============================================================================
-# 6. RAG Evaluation Configuration (RAGAS)
+# 6. RAG 评测配置（RAGAS）
 # =============================================================================
-# Configuration for quality monitoring using the RAGAS framework.
+# 基于 RAGAS 框架的质量评估与监控配置。
 # =============================================================================
 
 evaluation:
   enabled: true
-  # Async mode: Run evaluation in background without blocking response
+  # 异步模式：在后台运行评估，不阻塞响应生成
   async_mode: true
-  # Sampling rate (0.0-1.0): Fraction of requests to evaluate
+  # 采样率（0.0-1.0）：要评估的请求比例
   # 1.0 = evaluate all requests, 0.1 = evaluate 10% of requests
   sample_rate: 1.0
-  # RAGAS metrics to compute
+  # RAGAS 评估指标
   # Available: "faithfulness", "answer_relevancy", "context_precision", "context_recall"
   metrics:
     - "faithfulness"
     - "answer_relevancy"
-  # LLM tier to use for evaluation (fast recommended for cost efficiency)
+  # 用于评测任务的 LLM 配置层级（推荐使用 fast 层以降低成本）
   llm_type: "fast"
-  # Evaluation timeout in seconds
+  # 评估超时时间（秒）
   timeout_seconds: 600
-  # Quality alert thresholds
+  # 质量告警阈值
   alert_thresholds:
     faithfulness: 0.3
     answer_relevancy: 0.5
 
 # =============================================================================
-# 7. Web Search Configuration (Tavily)
+# 7. Web 搜索配置（Tavily）
 # =============================================================================
-# Configuration for real-time web search enhancement.
+# 用于实时 Web 搜索增强的相关配置。
 # =============================================================================
 
 web_search:
   enabled: true
-  # Maximum number of search results to return
+  # 最大返回搜索结果数
   max_results: 6
-  # api_key: Loaded from .env (WEB_SEARCH_API_KEY)
 
 # =============================================================================
-# 8. Image Generation Configuration (OpenAI DALL-E)
+# 8. 图像生成配置（OpenAI DALL·E）
 # =============================================================================
-# Configuration for AI image generation using OpenAI's DALL-E 3 model.
+# 使用 OpenAI DALL·E 3 模型进行 AI 图像生成的相关配置。
 # =============================================================================
 
 image_generation:
   enabled: true
   model: "Kwai-Kolors/Kolors"
   base_url: "https://api.siliconflow.cn/v1"
-  # api_key: Loaded from .env (OPENAI_IMAGE_API_KEY)
 
 # =============================================================================
-# 9. MCP (Model Context Protocol) Configuration
+# 9. MCP（模型上下文协议）配置
 # =============================================================================
-# Configuration for MCP server integrations.
+# 用于 MCP 服务器集成的相关配置。
 # =============================================================================
 
 mcp:
-  # Amap (高德地图) MCP server configuration
+  # Amap（高德地图） MCP 服务器配置
   amap:
     enabled: true
-  # amap_api_key: Loaded from .env (AMAP_API_KEY)
 
 # =============================================================================
-# 10. Data Source Configuration
+# 10. 数据源配置
 # =============================================================================
-# Configuration for external data sources (e.g., HowToCook recipe library).
+# 用于外部数据源（例如 HowToCook 菜谱库）的相关配置。
 # =============================================================================
 
 data_source:
   howtocook:
-    # Subdirectory path for dishes
+    # 菜谱子目录路径缀缀
     path_suffix: "dishes"
-    # Subdirectory path for cooking tips
+    # tips 子目录路径缀缀
     tips_path_suffix: "tips"
-    # Markdown headers to split documents on
+    # Markdown 分隔符
     headers_to_split_on:
       - ["#", "header_1"]
       - ["##", "header_2"]
 
 # =============================================================================
-# 11. Database Connection Configuration
+# 11. 数据库连接配置
 # =============================================================================
-# Connection details for PostgreSQL, Redis, and Milvus.
-# Passwords should be loaded from .env file for security.
+# PostgreSQL、Redis 与 Milvus 的连接相关配置。
+# 出于安全考虑，密码应从 .env 文件中加载。
 # =============================================================================
 
 database:
-  # PostgreSQL - Primary relational database
+  # PostgreSQL 主数据库配置
   postgres:
     host: "localhost"
     port: 5432
     database: "cookagent"
     user: "cookagent"
-    # password: Loaded from .env (DATABASE_PASSWORD)
-    # Connection pool settings
+    # 连接池配置
     pool_size: 20
     max_overflow: 30
     pool_timeout: 30
     pool_recycle: 1800
-    # Echo SQL queries (for debugging)
+    # 打印 SQL 查询（用于调试）
     echo: false
 
-  # Redis - Key-value store and L1 cache
+  # Redis 键值存储和缓存配置
   redis:
     host: "localhost"
     port: 6379
     db: 0
-    # password: Loaded from .env (REDIS_PASSWORD, optional)
 
-  # Milvus - Vector database for embeddings and L2 cache
+  # Milvus 向量数据库配置
   milvus:
     host: "localhost"
     port: 19530
-    # user: Loaded from .env (MILVUS_USER, optional)
-    # password: Loaded from .env (MILVUS_PASSWORD, optional)
-    # secure: false  # Set to true for TLS connection
 
 # =============================================================================
-# 12. Path Configuration
+# 12. 数据存储路径配置
 # =============================================================================
-# File system paths for data storage.
+# 数据存储路径配置
 # =============================================================================
 
 paths:
-  # Base path for the HowToCook recipe data
+  # HowToCook 数据存储路径配置
   base_data_path: "data/HowToCook"
 
 # =============================================================================
-# 13. GitHub Issues Configuration (Optional)
+# 13. GitHub Issues 配置（可选）
 # =============================================================================
-# Configuration for the self-hosted GitHub issues feature.
+# 用于自托管 GitHub Issues 功能的相关配置。
 # =============================================================================
 
 blank_issues_enabled: true

@@ -12,9 +12,15 @@ from pydantic import BaseModel
 from app.config.config_loader import (
     load_llm_config, 
     load_database_config,
+    load_rag_config,
+    load_web_search_config,
+    load_vision_config,
 )
 from app.config.llm_config import LLMConfig
 from app.config.database_config import DatabaseConfig
+from app.config.rag_config import RAGConfig
+from app.config.web_search_config import WebSearchConfig
+from app.config.vision_config import VisionConfig
 
 
 class Settings(BaseModel):
@@ -75,6 +81,13 @@ class Settings(BaseModel):
     # 数据库配置 (PostgreSQL, Redis, Milvus)
     database: DatabaseConfig = load_database_config()
 
-    
+    # RAG 配置
+    rag: RAGConfig = load_rag_config(llm.normal)
+
+    # web search 配置
+    web_search: WebSearchConfig = load_web_search_config()
+
+    # vision 配置
+    vision: VisionConfig = load_vision_config()
 
     

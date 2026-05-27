@@ -9,7 +9,10 @@ Settings：顶层配置类，包含全局配置以及各功能模块配置
 '''
 import os
 from pydantic import BaseModel
-from app.config.config_loader import load_llm_config, load_database_config
+from app.config.config_loader import (
+    load_llm_config, 
+    load_database_config,
+)
 from app.config.llm_config import LLMConfig
 from app.config.database_config import DatabaseConfig
 
@@ -71,5 +74,7 @@ class Settings(BaseModel):
     
     # 数据库配置 (PostgreSQL, Redis, Milvus)
     database: DatabaseConfig = load_database_config()
+
+    
 
     

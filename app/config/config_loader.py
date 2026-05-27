@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 from typing import Any, Dict
 
 from app.config.llm_config import LLMConfig
-from app.config.database_config import DatabaseConfig
+from app.config.database_config import DatabaseConfig, PostgresConfig, RedisConfig, MilvusConfig
 
 load_dotenv()
 
@@ -66,7 +66,46 @@ def load_llm_config() -> LLMConfig:
     return LLMConfig.model_validate(llm_data)
 
 def load_database_config() -> DatabaseConfig:
-    ''''''
+    '''
+    加载 PostgreSQL、Redis 与 Milvus 的数据库配置。
+    环境变量：
+    - DATABASE_PASSWORD：PostgreSQL 数据库密码
+    - REDIS_PASSWORD：Redis 密码
+    - MILVUS_USER：Milvus 用户名
+    - MILVUS_PASSWORD：Milvus 密码
+    '''
+    config_data = _load_config_data()
+    db_root = config_data.get("database", {}) or {}
+
+    # PostgreSQL 配置
+    pg_data = dict(db_root.get("postgres", {}) or {})
+    db_password = os.getenv("DATABASE_PASSWORD")
+    if db_password:
+        pg_data["password"] = db_password
+    postgres_config = PostgresConfig.model_validate(pg_data)
+
+    # Redis 配置
+    redis_data = dict(db_root.get("redis", {}) or {})
+    redis_password = os.getenv("REDIS_PASSWORD")
+    if redis_password:
+        redis_data["password"] = redis_password
+    redis_config = RedisConfig.model_validate(redis_data)
+
+    # Milvus 配置
+    milvus_data = dict(db_root.get("milvus", {}) or {})
+    milvus_user = os.getenv("MILVUS_USER")
+    milvus_password = os.getenv("MILVUS_PASSWORD")
+    if milvus_user:
+        milvus_data["user"] = milvus_user
+    if milvus_password:
+        milvus_data["password"] = milvus_password
+    milvus_config = MilvusConfig.model_validate(milvus_data)
+
+    return DatabaseConfig(
+        postgres=postgres_config,
+        redis=redis_config,
+        milvus=milvus_config,
+    )
 
     
     

@@ -22,6 +22,8 @@ from app.config.database_config import (
 from app.config.rag_config import RAGConfig
 from app.config.web_search_config import WebSearchConfig
 from app.config.vision_config import VisionConfig, ImageStorageConfig, ImageGenerationConfig
+from app.config.evaluation_config import EvaluationConfig, AlertThresholds
+from app.config.mcp_config import MCPConfig, MCPServerConfig
 
 load_dotenv()
 
@@ -147,8 +149,13 @@ def load_rag_config(llm_config: Any | None = None) -> RAGConfig:
         # 如果环境变量中没有 RERANKER_API_KEY，则检查 YAML 配置中的 reranker.api_key
         if "api_key" not in reranker_data or not reranker_data["api_key"]:
             # 如果 YAML 中也没有配置，则回退使用全局 LLM API Key
-            if llm_config and llm_config.normal.api_key:
-                reranker_data["api_key"] = llm_config.normal.api_key
+            normal_api_key = getattr(
+                getattr(llm_config, "normal", llm_config),
+                "api_key",
+                None,
+            )
+            if normal_api_key:
+                reranker_data["api_key"] = normal_api_key
 
     
     rag_data["reranker"] = reranker_data
@@ -231,3 +238,49 @@ def load_image_generation_config() -> ImageGenerationConfig:
         ig_data["api_key"] = api_key
 
     return ImageGenerationConfig.model_validate(ig_data)
+
+def load_evaluation_config() -> EvaluationConfig:
+    """
+    从 YAML 配置文件与环境变量中加载评测配置。
+    无需额外的环境变量配置，评测功能直接复用现有的 LLM 配置。
+    """
+    config_data = _load_config_data()
+    eval_data = dict(config_data.get("evaluation", {}) or {})
+
+    thresholds_data = eval_data.pop("alert_thresholds", None)
+    if thresholds_data:
+        eval_data["alert_thresholds"] = AlertThresholds(**thresholds_data)
+
+    # 使用默认值构建配置对象，以兼容缺失字段的情况
+    return EvaluationConfig(
+        enabled=eval_data.get("enabled", True),
+        async_mode=eval_data.get("async_mode", True),
+        sample_rate=eval_data.get("sample_rate", 1.0),
+        metrics=eval_data.get("metrics", [
+            "faithfulness",
+            "answer_relevancy",
+        ]),
+        llm_type=eval_data.get("llm_type", "fast"),
+        timeout_seconds=eval_data.get("timeout_seconds", 60),
+        alert_thresholds=eval_data.get("alert_thresholds", AlertThresholds()),
+    )
+
+def load_mcp_config() -> MCPConfig:
+    """
+    从 YAML 配置文件与环境变量中加载 MCP 配置。
+    环境变量：
+        - AMAP_API_KEY：高德地图 API Key
+    """
+    config_data = _load_config_data()
+    mcp_data = dict(config_data.get("mcp", {}) or {})
+
+    amap_api_key = os.getenv("AMAP_API_KEY")
+    if amap_api_key:
+        mcp_data["amap_api_key"] = amap_api_key
+
+    # 解析mcp服务配置
+    amap_data = mcp_data.pop("amap", None)
+    if amap_data:
+        mcp_data["amap"] = MCPServerConfig(**amap_data)
+
+    return MCPConfig.model_validate(mcp_data)

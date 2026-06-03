@@ -15,12 +15,19 @@ from app.config.config_loader import (
     load_rag_config,
     load_web_search_config,
     load_vision_config,
+    load_evaluation_config,
+    load_mcp_config,
+    load_image_generation_config,
+    load_image_storage_config,
 )
 from app.config.llm_config import LLMConfig
 from app.config.database_config import DatabaseConfig
 from app.config.rag_config import RAGConfig
 from app.config.web_search_config import WebSearchConfig
 from app.config.vision_config import VisionConfig
+from app.config.evaluation_config import EvaluationConfig
+from app.config.mcp_config import MCPConfig
+from app.config.vision_config import ImageGenerationConfig, ImageStorageConfig
 
 
 class Settings(BaseModel):
@@ -89,5 +96,29 @@ class Settings(BaseModel):
 
     # vision 配置
     vision: VisionConfig = load_vision_config()
+
+    # RAG 评估配置
+    evaluation: EvaluationConfig = load_evaluation_config()
+
+    # MCP 配置
+    mcp: MCPConfig = load_mcp_config()
+
+    # 图片生成配置
+    image_generation: ImageGenerationConfig = load_image_generation_config()
+
+    # 图片存储配置
+    image_storage: ImageStorageConfig = load_image_storage_config()
+
+    class Config:
+        arbitrary_types_allowed = True
+
+# 全局唯一配置实例
+settings = Settings()
+
+# 为保持向后兼容提供的便捷别名
+DefaultRAGConfig = settings.rag
+
+
+
 
     

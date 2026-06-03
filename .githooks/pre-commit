@@ -11,6 +11,7 @@
 #        git config core.hooksPath .githooks
 #
 # 若你不想在每次提交时都执行审查，可以在这里加条件判断（例如只对特定分支执行）。
+# git commit --no-verify -m "your commit message" 跳过 pre-commit hook。
 
 echo "[pre-commit] 调用 DeepSeek 进行代码审查..."
 

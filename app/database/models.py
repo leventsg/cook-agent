@@ -16,7 +16,7 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from typing import List, Optional
 from datetime import datetime
 import uuid
@@ -149,7 +149,7 @@ class MessageModel(Base):
     )
 
     def to_dict(self) -> dict:
-        """Serialize message to dict for API responses."""
+        """序列化消息为字典，用于 API 响应"""
         return {
             "id": str(self.id),
             "role": self.role,

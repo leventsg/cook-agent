@@ -41,7 +41,7 @@ function LoginPage() {
       <div className="w-full max-w-md bg-white dark:bg-gray-900 shadow-xl rounded-2xl p-8 border border-orange-100/70 dark:border-gray-800">
         <div className="flex items-center gap-2 mb-6">
           <span className="text-3xl">🍳</span>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Welcome back to CookHero</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Welcome back to CookAgent</h1>
         </div>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">Sign in to continue your cooking conversations.</p>
 

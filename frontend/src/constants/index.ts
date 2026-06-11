@@ -10,10 +10,10 @@ export const CONVERSATIONS_PAGE_SIZE = 30;
 
 // Storage Keys
 export const STORAGE_KEYS = {
-  TOKEN: 'cookhero_token',
-  USERNAME: 'cookhero_username',
+  TOKEN: 'cookagent_token',
+  USERNAME: 'cookagent_username',
   THEME: 'theme',
-  STREAMING_CACHE: 'cookhero_streaming_cache',
+  STREAMING_CACHE: 'cookagent_streaming_cache',
 } as const;
 
 // Intent Labels
@@ -35,5 +35,5 @@ export const DATE_CATEGORY_LABELS = {
 } as const;
 
 // App Info
-export const APP_NAME = 'CookHero';
+export const APP_NAME = 'CookAgent';
 export const APP_EMOJI = '🍳';

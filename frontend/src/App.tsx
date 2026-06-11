@@ -130,7 +130,7 @@ function ChatView() {
               onToolsOpenChange={setIsToolSelectorOpen}
             />
             <div className="text-center text-xs text-gray-400 mt-2">
-              CookHero Agent can make mistakes. Consider checking important information.
+              CookAgent can make mistakes. Consider checking important information.
             </div>
           </div>
         </>
@@ -148,12 +148,12 @@ function ChatView() {
               onCancel={stopGeneration}
               disabled={isLoading}
               isStreaming={isStreaming}
-              placeholder="Ask CookHero anything about cooking..."
+              placeholder="Ask CookAgent anything about cooking..."
               externalValue={suggestionText}
               onExternalValueConsumed={handleSuggestionConsumed}
             />
             <div className="text-center text-xs text-gray-400 mt-2">
-              CookHero can make mistakes. Consider checking important information.
+              CookAgent can make mistakes. Consider checking important information.
             </div>
           </div>
         </>
@@ -319,7 +319,7 @@ function MainLayout({ children }: { children: React.ReactNode }) {
             </button>
             {/* <div className="flex items-center gap-2">
               <span className="text-2xl">🍳</span>
-              <h1 className="font-bold text-gray-800 dark:text-gray-100">CookHero</h1>
+              <h1 className="font-bold text-gray-800 dark:text-gray-100">CookAgent</h1>
             </div> */}
           </div>
           <div className="flex items-center gap-1.5 sm:gap-3 text-xs text-gray-600 dark:text-gray-300 overflow-visible">

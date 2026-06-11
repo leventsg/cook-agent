@@ -28,3 +28,6 @@ dist/
 logs/
 blog/
 .ignore
+
+# Docker
+deployments/volumes/

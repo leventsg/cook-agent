@@ -134,12 +134,12 @@ function EmptyState({
             {/* <section className="relative flex-1 flex flex-col items-center justify-center overflow-hidden">
                 <div className="flex items-center gap-4">
                     <div className="w-20 h-20 bg-orange-100 dark:bg-orange-900/30 rounded-2xl flex items-center justify-center text-orange-600 dark:text-orange-400 shrink-0 overflow-hidden">
-                        <img src="/image.png" alt="CookHero Logo" className="w-full h-full object-contain p-2" />
+                        <img src="/image.png" alt="CookAgent Logo" className="w-full h-full object-contain p-2" />
                     </div>
                     <div className="w-100 h-48 max-w-5xl mx-auto flex items-center justify-center">
                         <img
                             src="/image.png"
-                            alt="CookHero Logo"
+                            alt="CookAgent Logo"
                             className="w-full max-w-4xl object-contain transition-all duration-500 group-hover:scale-105"
                         />
                     </div>
@@ -159,7 +159,7 @@ function EmptyState({
                         <div className="w-100 h-48 max-w-5xl mx-auto flex items-center justify-center">
                             <img
                                 src="/image.png"
-                                alt="CookHero Logo"
+                                alt="CookAgent Logo"
                                 className="w-full max-w-4xl object-contain transition-all duration-500 group-hover:scale-105"
                             />
                         </div>

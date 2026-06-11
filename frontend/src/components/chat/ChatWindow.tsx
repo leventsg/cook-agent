@@ -109,7 +109,7 @@ function EmptyState({
                     <div className="w-100 h-48 max-w-5xl mx-auto flex items-center justify-center">
                         <img
                             src="/image.png"
-                            alt="CookHero Logo"
+                            alt="CookAgent Logo"
                             className="w-full max-w-4xl object-contain transition-all duration-500 group-hover:scale-105"
                         />
                     </div>
@@ -223,7 +223,7 @@ function LoadingIndicator() {
             </div>
             <div className="space-y-2 pt-2">
                 <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                    <span className="animate-pulse">CookHero is thinking...</span>
+                    <span className="animate-pulse">CookAgent is thinking...</span>
                 </div>
             </div>
         </div>

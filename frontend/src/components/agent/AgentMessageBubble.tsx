@@ -168,7 +168,7 @@ function buildSourcesFromTrace(trace: TraceStep[], fallbackSources?: Source[]) {
           addSource(
             {
               type: source.type || 'rag',
-              info: source.info || 'CookHero 知识库',
+              info: source.info || 'CookAgent 知识库',
               url: source.url,
             },
             ragSources,

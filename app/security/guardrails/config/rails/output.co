@@ -1,0 +1,58 @@
+# =============================================================================
+# CookAgent 输出层安全规则 (Colang)
+# =============================================================================
+# 定义输出层防护流程，检测响应中的敏感信息泄露
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Bot 响应模式定义 - 敏感内容
+# -----------------------------------------------------------------------------
+define bot reveals system prompt
+  "我的系统提示是"
+  "我的指令是"
+  "my system prompt is"
+  "my instructions are"
+  "I was told to"
+  "我被设定为"
+
+define bot reveals internal info
+  "我是 GPT"
+  "我是 Claude"
+  "我的 API"
+  "I am GPT"
+  "I am Claude"
+  "my API key"
+  "API 密钥"
+
+define bot complies with jailbreak
+  "好的，我现在进入"
+  "作为 DAN"
+  "忽略我之前说的"
+  "okay, I will now"
+  "as DAN"
+  "ignoring my previous"
+
+# -----------------------------------------------------------------------------
+# 安全响应定义
+# -----------------------------------------------------------------------------
+define bot safe refusal
+  "抱歉，我无法提供这类信息。让我们继续聊烹饪相关的话题吧！🍳"
+
+define bot safe redirect
+  "我是 CookAgent，一个专注于烹饪的助手。有什么美食问题我可以帮您解答？🥘"
+
+# -----------------------------------------------------------------------------
+# 输出检测流程
+# -----------------------------------------------------------------------------
+define flow check system prompt leak
+  """检测系统提示泄露"""
+  bot reveals system prompt or reveals internal info or complies with jailbreak
+  bot safe refusal
+  stop
+
+define flow check sensitive content
+  """检测敏感内容泄露 - 使用 LLM 判断"""
+  $allowed = execute self_check_output
+  if not $allowed
+    bot safe redirect
+    stop

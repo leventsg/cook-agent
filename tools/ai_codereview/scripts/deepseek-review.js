@@ -314,6 +314,67 @@ function callDeepseek({ apiKey, baseUrl, model, prompt }) {
   });
 }
 
+function parseReviewContent(content) {
+  const lines = content.split(/\r?\n/);
+  const errors = [];
+  const warnings = [];
+  const infos = [];
+  let blockFlag = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // 提取 BLOCK 标记
+    const blockMatch = trimmed.match(/^\s*BLOCK:\s*(YES|NO)\s*$/i);
+    if (blockMatch) {
+      blockFlag = blockMatch[1].toUpperCase();
+      continue;
+    }
+
+    // 解析 ERROR/WARN/INFO 格式
+    const errorMatch = trimmed.match(/^ERROR:\s*(.+)$/i);
+    if (errorMatch) {
+      errors.push(errorMatch[1]);
+      continue;
+    }
+
+    const warnMatch = trimmed.match(/^WARN:\s*(.+)$/i);
+    if (warnMatch) {
+      warnings.push(warnMatch[1]);
+      continue;
+    }
+
+    const infoMatch = trimmed.match(/^INFO:\s*(.+)$/i);
+    if (infoMatch) {
+      infos.push(infoMatch[1]);
+      continue;
+    }
+  }
+
+  return { errors, warnings, infos, blockFlag };
+}
+
+function decideShouldBlock(review, { blockOnSevere }) {
+  if (!blockOnSevere) {
+    return { shouldBlock: false, reason: "disabled" };
+  }
+
+  if (review.blockFlag === "YES") {
+    if (review.errors.length > 0) {
+      return { shouldBlock: true, reason: "block_yes_with_errors" };
+    }
+
+    return { shouldBlock: false, reason: "block_yes_without_errors" };
+  }
+
+  if (!review.blockFlag && review.errors.length > 0) {
+    return { shouldBlock: true, reason: "missing_block_with_errors" };
+  }
+
+  return { shouldBlock: false, reason: "allowed" };
+}
+
 async function main() {
   // 优先从 .env.local 加载配置（例如 DEEPSEEK_API_KEY）
   loadEnvLocal();
@@ -369,42 +430,8 @@ async function main() {
     process.stdout.write(clearLine);
     
     // 解析 AI 返回的内容，按 ERROR/WARN/INFO 分类
-    const lines = content.split(/\r?\n/);
-    const errors = [];
-    const warnings = [];
-    const infos = [];
-    let blockFlag = null;
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-
-      // 提取 BLOCK 标记
-      const blockMatch = trimmed.match(/^\s*BLOCK:\s*(YES|NO)\s*$/i);
-      if (blockMatch) {
-        blockFlag = blockMatch[1].toUpperCase();
-        continue;
-      }
-
-      // 解析 ERROR/WARN/INFO 格式
-      const errorMatch = trimmed.match(/^ERROR:\s*(.+)$/i);
-      if (errorMatch) {
-        errors.push(errorMatch[1]);
-        continue;
-      }
-
-      const warnMatch = trimmed.match(/^WARN:\s*(.+)$/i);
-      if (warnMatch) {
-        warnings.push(warnMatch[1]);
-        continue;
-      }
-
-      const infoMatch = trimmed.match(/^INFO:\s*(.+)$/i);
-      if (infoMatch) {
-        infos.push(infoMatch[1]);
-        continue;
-      }
-    }
+    const review = parseReviewContent(content);
+    const { errors, warnings, infos, blockFlag } = review;
 
     // 按程序报错样式输出，带颜色和表情
     if (errors.length > 0 || warnings.length > 0 || infos.length > 0) {
@@ -445,16 +472,11 @@ async function main() {
         : envBlock === "1"
         ? true
         : !!rules.blockOnSevereDefault;
-    let shouldBlock = false;
+    const decision = decideShouldBlock(review, { blockOnSevere });
 
-    if (blockFlag) {
-      if (blockFlag === "YES") {
-        shouldBlock = true;
-      }
-    } else {
+    if (!blockFlag) {
       // 如果没有 BLOCK 标记，但有 ERROR 级别问题，也视为需要阻断
       if (errors.length > 0) {
-        shouldBlock = true;
         console.warn(
           `${colors.yellow}[deepseek-review] 未找到 BLOCK 标记，但检测到 ERROR 级别问题，将阻止提交。${colors.reset}`
         );
@@ -463,9 +485,13 @@ async function main() {
           `${colors.yellow}[deepseek-review] 未在模型输出中找到 BLOCK: YES/NO 标记，将默认视为允许提交（BLOCK: NO）。${colors.reset}`
         );
       }
+    } else if (decision.reason === "block_yes_without_errors") {
+      console.warn(
+        `${colors.yellow}[deepseek-review] 模型返回 BLOCK: YES，但没有可解析的 ERROR 问题，将默认允许提交。${colors.reset}`
+      );
     }
 
-    if (blockOnSevere && shouldBlock) {
+    if (decision.shouldBlock) {
       console.error(`\n${colors.red}${colors.bold}${emojis.error} [deepseek-review] 检测到严重问题，阻止本次提交。${colors.reset}\n`);
       process.exit(1);
     }
@@ -481,5 +507,11 @@ async function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
 
+module.exports = {
+  parseReviewContent,
+  decideShouldBlock,
+};

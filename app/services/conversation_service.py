@@ -39,24 +39,27 @@ logger = logging.getLogger(__name__)
 
 class ConversationService:
     """
-    Manages conversations with LLM and RAG integration.
+    控制 LLM 与 RAG 的对话流程
 
-    Context building strategy:
-    1. System Message - Base system prompt
-    2. Compressed Summary - Summary of compressed messages (if exists)
-    3. Uncompressed Messages - Original messages not yet compressed (history[compressed_count:])
-    4. Extra System Prompt - RAG context if applicable
+    上下文构建策略：
+    1. System Message
+    2. Compressed Summary
+    3. Uncompressed Messages: (history[compressed_count:])
+    4. Extra System Prompt
 
-    Key invariant: Every message is either in compressed_summary or in context as original.
+    核心不变性约束：
+    每条消息必须满足以下条件之一：
+    - 已包含在 compressed_summary 中
+    - 以原始消息形式存在于当前上下文中
     """
 
-    # Number of recent uncompressed messages to keep before considering compression
+    # 最近消息限制（不含 compressed_summary 中的消息）
     RECENT_MESSAGES_LIMIT = 20
-    # Number of messages to compress each time
+    # 压缩阈值（每次压缩的消息数量）
     COMPRESSION_THRESHOLD = 10
 
     def __init__(self):
-        """Initialize the conversation service with modular components."""
+        """初始化会话服务"""
         self.context_manager = ContextManager(
             system_prompt=SYSTEM_PROMPT,
         )
@@ -70,7 +73,8 @@ class ConversationService:
         self.query_rewriter = QueryRewriter(llm_type="fast")
 
     # =========================================================================
-    # Main Chat Entry Point
+    # 主聊天入口点
+    # 处理用户消息并生成响应的异步生成器
     # =========================================================================
 
     async def chat(
@@ -83,28 +87,28 @@ class ConversationService:
         images: Optional[List[Dict[str, str]]] = None,
     ) -> AsyncGenerator[str, None]:
         """
-        Process a chat message and generate a response.
+        处理聊天消息并生成响应
 
-        Yields SSE-formatted events:
-        - {"type": "vision", "data": {...}} - Vision analysis result (if images provided)
-        - {"type": "intent", "data": {...}} - Detected intent
-        - {"type": "thinking", "content": "..."} - Thinking step
-        - {"type": "text", "content": "..."} - Text chunk
-        - {"type": "sources", "data": [...]} - Sources (unified format)
-        - {"type": "done", "conversation_id": "..."} - Completion signal
+        生成 SSE 格式的事件：
+        - {"type": "vision", "data": {...}} - 视觉分析结果（如果有图片）
+        - {"type": "intent", "data": {...}} - 意图检测结果
+        - {"type": "thinking", "content": "..."} - 思考步骤
+        - {"type": "text", "content": "..."} - 文本块
+        - {"type": "sources", "data": [...]} - 来源列表（统一格式）
+        - {"type": "done", "conversation_id": "..."} - 完成信号
 
         Args:
-            message: The user's message
-            conversation_id: Optional existing conversation ID
-            user_id: Optional user ID for personalization and memory
-            stream: Whether to stream the response
-            extra_options: Optional features like {"web_search": true}
-            images: Optional list of images for multimodal understanding
+            message: 用户消息
+            conversation_id: 可选的现有会话 ID
+            user_id: 用户 ID，用于个性化和记忆
+            stream: 是否流式输出响应
+            extra_options: 可选的功能，如 {"web_search": true}
+            images: 可选的图片列表，用于视觉多模态理解
         """
-        # Start timing thinking phase
+        # 开始记录思考时间
         tmp = time.time()
 
-        # Phase 1: Initialize context
+        # 1.初始化上下文
         ctx = await self._initialize_context(
             message=message,
             conversation_id=conversation_id,
@@ -114,23 +118,23 @@ class ConversationService:
         )
         ctx.thinking_start_time = tmp
 
-        # Phase 1.5: Vision Analysis (if images provided)
+        # 视觉分析
         if ctx.images:
             async for event in self._process_vision(ctx):
                 yield event
 
-            # If vision result indicates non-food content, return direct response
+            # 如果视觉分析结果指示非食物内容，直接返回直接响应
             if ctx.vision_result and not ctx.vision_result.is_food_related:
-                # Save user message before returning (include vision context)
+                # 保存用户消息（包含视觉分析文）
                 await self._save_user_message(ctx)
                 async for event in self._handle_non_food_image(ctx):
                     yield event
                 return
 
-        # Save user message (with vision context if available)
+        # 保存用户消息（包含视觉分析上下文）
         await self._save_user_message(ctx)
 
-        # Phase 2: Intent Detection
+        # 2.意图检测
         intent_result = await self._detect_intent(ctx)
         yield f"data: {json.dumps({'type': 'intent', 'data': {'need_rag': intent_result.need_rag, 'intent': intent_result.intent.value, 'reason': intent_result.reason}})}\n\n"
 
@@ -149,20 +153,20 @@ class ConversationService:
             len(ctx.images) if ctx.images else 0,
         )
 
-        # Phase 3: Web Search (if enabled and proactive)
+        # 3.网络搜索（如果启用）
         web_search_decision: Optional[WebSearchDecision] = None
         if ctx.options.web_search:
             web_search_decision, events = await self._process_web_search_decision(ctx)
             for event in events:
                 yield event
 
-            # Execute proactive web search if confidence is high
+            # 如果置信度高，则执行主动网络搜索
             if web_search_decision and web_search_decision.should_search:
                 events = await self._execute_web_search(ctx, web_search_decision)
                 for event in events:
                     yield event
 
-        # Phase 4: RAG Retrieval (if needed) - Only prepare data, don't generate response
+        # 4.RAG 检索（如果需要）
         if intent_result.need_rag:
             async for event in self._prepare_rag_context(
                 ctx=ctx,
@@ -170,18 +174,17 @@ class ConversationService:
             ):
                 yield event
         else:
-            # No RAG needed, just emit thinking
             yield self._emit_thinking(ctx, "💬 无需检索知识库，直接回答...")
 
-        # Phase 5: Unified output - Sources and Response Generation
-        # Always emit sources (may be empty list if no sources collected)
+        # 5.统一输出 - 源数据和响应生成
+        # 始终发出源数据（如果没有收集到源数据，则可能是一个空列表）
         sources_data = [s.to_dict() for s in ctx.sources]
         yield f"data: {json.dumps({'type': 'sources', 'data': sources_data})}\n\n"
 
-        # Generate response with all collected context
+        # 使用所有收集到的上下文生成响应
         yield self._emit_thinking(ctx, "🤖 开始生成回答...")
 
-        # End thinking phase, start answer phase
+        # 结束思考阶段，开始回答阶段
         ctx.thinking_end_time = time.time()
         ctx.answer_start_time = time.time()
 
@@ -190,14 +193,14 @@ class ConversationService:
             full_response += chunk
             yield f"data: {json.dumps({'type': 'text', 'content': chunk})}\n\n"
 
-        # End answer phase
+        # 结束回答阶段
         ctx.answer_end_time = time.time()
 
-        # Phase 6: Save response and complete
+        # 6.保存完整响应
         await self._save_response(ctx, full_response, intent_result)
         yield f"data: {json.dumps({'type': 'done', 'conversation_id': ctx.conv_id})}\n\n"
 
-        # Trigger async context compression
+        # 触发异步上下文压缩任务
         asyncio.create_task(
             self.context_compressor.maybe_compress(
                 ctx.conv_id, conversation_repository, user_id=ctx.user_id
@@ -205,7 +208,7 @@ class ConversationService:
         )
 
     # =========================================================================
-    # Phase 1: Context Initialization
+    # 1.上下文初始化
     # =========================================================================
 
     async def _initialize_context(
@@ -216,31 +219,32 @@ class ConversationService:
         extra_options: Optional[Dict[str, Any]],
         images: Optional[List[Dict[str, str]]] = None,
     ) -> ChatContext:
-        """Initialize chat context with conversation data.
+        """
+        初始化聊天上下文，包含对话数据。
 
-        Note: User message is NOT saved here. It will be saved after vision
-        analysis completes (if images are provided) so that the vision context
-        can be included in the message content.
+        注意：此处不会保存用户消息
+        如果提供了图片，用户消息将在视觉分析完成后再保存
+        以便将视觉分析得到的上下文信息一并写入消息内容中
         """
         options = ExtraOptions.from_dict(extra_options)
 
-        # Get or create conversation
+        # 获取或创建对话
         conversation = await conversation_repository.get_or_create(
             conversation_id, user_id=user_id
         )
         conv_id = str(conversation.id)
 
-        # NOTE: User message will be saved later after vision analysis
-        # to include vision context in the message content
+        # 注意：此处不会保存用户消息
+        # 以便将视觉分析得到的上下文信息一并写入消息内容中
 
-        # Load history (before adding new message)
+        # 加载历史消息（在添加新消息之前）
         history = await conversation_repository.get_history(conv_id, limit=100) or []
         (
             compressed_summary,
             compressed_count,
         ) = await conversation_repository.get_compressed_summary(conv_id)
 
-        # Build history structures (append sources to assistant content)
+        # 构建历史消息结构（将来源信息添加到assistant消息内容）
         history_dicts = [
             {
                 "role": h["role"],
@@ -258,7 +262,7 @@ class ConversationService:
             compressed_summary=compressed_summary,
         )
 
-        # Load user personalization context
+        # 加载用户个性化上下文
         user_profile = None
         user_instruction = None
         if user_id:
@@ -284,23 +288,20 @@ class ConversationService:
 
     async def _save_user_message(self, ctx: ChatContext) -> None:
         """
-        Save user message to database with vision context if available.
+        保存用户消息到数据库，包含视觉上下文（如果有）
 
-        This method is called after vision analysis completes so that
-        the vision context can be included in the message content.
-        This ensures that follow-up messages can access the image analysis
-        results from conversation history.
+        该方法会在视觉分析完成后被调用，
+        以便将视觉分析得到的上下文信息写入消息内容中
+        这样后续对话消息便能够从会话历史中获取并利用图像分析结果
         """
-        # Build message content with vision context
         content = ctx.message
 
-        # Build sources with image URLs for persistence
         sources = None
         if ctx.images:
-            # Store image URLs in sources field for retrieval after refresh
+            # 在 sources 字段中保存图片 URL，便于页面刷新后恢复访问
             image_sources = []
             for i, img in enumerate(ctx.images):
-                # Upload to imgbb for persistent URL
+                # 上传图片到 imgbb 以持久化 URL
                 from app.utils.image_storage import upload_to_imgbb
                 try:
                     upload_result = await upload_to_imgbb(
@@ -319,20 +320,20 @@ class ConversationService:
             if image_sources:
                 sources = image_sources
 
-        # Save to database
+        # 保存消息到数据库
         await conversation_repository.add_message(
             conversation_id=ctx.conv_id,
             role="user",
             content=content,
             sources=sources,
         )
-
-        # Update history with the new message (for current request context)
+        
+        # 更新当前请求上下文的历史消息
         new_message = {"role": "user", "content": content}
         ctx.history.append(new_message)
         ctx.history_dicts.append(new_message)
 
-        # Rebuild history text to include the new message
+        # 重新构建历史消息文本
         ctx.history_text = self.context_manager.build_history_text(
             history=ctx.history_dicts,
             compressed_count=ctx.compressed_count,
@@ -344,8 +345,7 @@ class ConversationService:
     # =========================================================================
 
     async def _detect_intent(self, ctx: ChatContext) -> IntentDetectionResult:
-        """Detect user intent from message and history."""
-        # If we have vision context, include it in intent detection
+        """从历史消息和用户查询中检测意图"""
         history_text = ctx.history_text
         if ctx.vision_context:
             history_text = f"{history_text}\n\n{ctx.vision_context}"
@@ -356,14 +356,13 @@ class ConversationService:
         )
 
     # =========================================================================
-    # Phase 1.5: Vision Processing
+    # Vision Processing
     # =========================================================================
 
     async def _process_vision(self, ctx: ChatContext) -> AsyncGenerator[str, None]:
         """
-        Process images using vision model.
-
-        Yields SSE events for vision analysis progress.
+        使用视觉模型处理图像
+        以 SSE 事件的形式持续输出视觉分析进度
         """
         if not ctx.images:
             return
@@ -373,7 +372,7 @@ class ConversationService:
         )
 
         try:
-            # Convert image data to ImageInput objects
+            # 将图像数据转换为 ImageInput 对象列表
             image_inputs = []
             for img_data in ctx.images:
                 image_inputs.append(
@@ -383,7 +382,7 @@ class ConversationService:
                     )
                 )
 
-            # Analyze images with vision agent
+            # 使用视觉智能体分析图像
             vision_result = await vision_agent.analyze(
                 images=image_inputs,
                 user_query=ctx.message,
@@ -392,13 +391,13 @@ class ConversationService:
                 conversation_id=ctx.conv_id,
             )
 
-            # Store result in context
+            # 存储视觉分析结果到上下文
             ctx.vision_result = vision_result
 
-            # Emit vision result event
+            # 发送视觉分析结果事件
             yield f"data: {json.dumps({'type': 'vision', 'data': vision_result.to_dict()})}\n\n"
 
-            # Log and emit thinking
+            # 记录并发送思考事件
             yield self._emit_thinking(
                 ctx,
                 f"📷 图片分析完成: {'与食物相关' if vision_result.is_food_related else '与食物无关'}",
@@ -408,7 +407,7 @@ class ConversationService:
             )
 
             if vision_result.is_food_related:
-                # Build context for RAG pipeline
+                # 为 RAG 检索构建上下文
                 ctx.vision_context = vision_agent.build_context_for_rag(
                     vision_result, ctx.message
                 )
@@ -424,35 +423,35 @@ class ConversationService:
         except Exception as e:
             logger.error(f"Vision processing error: {e}", exc_info=True)
             yield self._emit_thinking(ctx, f"📷 图片分析出错: {str(e)[:50]}")
-            # Continue without vision context on error
 
     async def _handle_non_food_image(
         self, ctx: ChatContext
     ) -> AsyncGenerator[str, None]:
         """
-        Handle non-food related image with direct response.
+        处理与食物无关的图片并直接生成回复
 
-        This short-circuits the normal conversation flow for non-cooking content.
+        对于非烹饪相关内容，
+        将直接返回结果，不再进入后续标准对话处理流程
         """
         if not ctx.vision_result or not ctx.vision_result.direct_response:
             return
 
         yield self._emit_thinking(ctx, "💬 图片与烹饪无关，直接回复...")
 
-        # End thinking phase
+        # 结束思考阶段
         ctx.thinking_end_time = time.time()
         ctx.answer_start_time = time.time()
 
-        # Use direct response from vision analysis
+        # 直接回复
         response = ctx.vision_result.direct_response
         yield f"data: {json.dumps({'type': 'text', 'content': response})}\n\n"
 
         ctx.answer_end_time = time.time()
 
-        # Emit empty sources (no RAG used)
+        # 发送空的来源事件（未使用 RAG 检索）
         yield f"data: {json.dumps({'type': 'sources', 'data': []})}\n\n"
 
-        # Save response with vision intent
+        # 保存回复和视觉意图到数据库
         await conversation_repository.add_message(
             conversation_id=ctx.conv_id,
             role="assistant",
@@ -481,10 +480,10 @@ class ConversationService:
         ctx: ChatContext,
     ) -> tuple[Optional[WebSearchDecision], List[str]]:
         """
-        Process web search decision.
+        处理网络搜索决策。
 
         Returns:
-            Tuple of (decision, list of SSE events to yield)
+            (决策, 要生成的 SSE 事件列表)
         """
         events = []
         events.append(self._emit_thinking(ctx, "🌐 正在判断是否需要 Web 搜索..."))
@@ -514,10 +513,10 @@ class ConversationService:
         decision: WebSearchDecision,
     ) -> List[str]:
         """
-        Execute web search and update context.
+        执行网络搜索并更新上下文。
 
         Returns:
-            List of SSE events to yield
+            要生成的 SSE 事件列表
         """
         events = []
 
@@ -549,7 +548,7 @@ class ConversationService:
                     )
                 )
 
-            # Update context
+            # 更新上下文
             ctx.web_search_context = web_search_tool.format_results_for_context(
                 search_results
             )
@@ -571,18 +570,19 @@ class ConversationService:
         web_search_decision: Optional[WebSearchDecision],
     ) -> AsyncGenerator[str, None]:
         """
-        Prepare RAG context by rewriting query and retrieving documents.
+        准备用于 RAG 上下文。
 
-        This method only prepares data (sources, rag_context, rewritten_query).
-        It does NOT emit sources or generate the final response.
+        该方法仅负责准备数据（sources、rag_context、rewritten_query）
+        不会输出 sources，
+        也不会生成最终回复内容
 
         Yields:
-            SSE thinking events only.
+            仅产生 SSE 类型的 Thinking 事件
         """
         yield self._emit_thinking(ctx, "⏳ 正在结合对话历史重写查询语句...")
 
         try:
-            # Query rewriting
+            # query重写
             ctx.rewritten_query = await self.query_rewriter.rewrite(
                 current_query=ctx.message,
                 history_text=ctx.history_text,
@@ -591,8 +591,8 @@ class ConversationService:
             )
             yield self._emit_thinking(ctx, f"✍️ 重写后的查询语句: {ctx.rewritten_query}")
 
-            # RAG retrieval
-            yield self._emit_thinking(ctx, "🔎 正在从 CookHero 知识库中检索相关资料...")
+            # RAG 检索
+            yield self._emit_thinking(ctx, "🔎 正在从 CookAgent 知识库中检索相关资料...")
 
             retrieval_result = await rag_service_instance.retrieve(
                 ctx.rewritten_query,
@@ -601,7 +601,7 @@ class ConversationService:
                 conversation_id=ctx.conv_id,
             )
 
-            # Process retrieval results (updates ctx.sources and ctx.rag_context)
+            # 处理检索结果
             async for event in self._process_retrieval_results(
                 ctx=ctx,
                 retrieval_result=retrieval_result,
@@ -621,15 +621,20 @@ class ConversationService:
         retrieval_result: RetrievalResult,
         web_search_decision: Optional[WebSearchDecision],
     ) -> AsyncGenerator[str, None]:
-        """Process RAG retrieval results and handle fallback web search."""
+        """
+        处理 RAG 检索结果，并在需要时执行降级网络搜索
+
+        当 RAG 检索结果不足或未命中时，
+        负责触发并处理备用的网络搜索流程
+        """
         doc_count = len(retrieval_result.documents)
 
-        # Convert RAG sources to unified format
+        # 转换 RAG 源为统一格式
         if retrieval_result.sources:
             for source in retrieval_result.sources:
                 ctx.sources.append(UnifiedSource.from_rag_source(source))
 
-        # Store RAG context
+        # 存储 RAG 上下文
         ctx.rag_context = retrieval_result.context
 
         if doc_count:
@@ -653,12 +658,12 @@ class ConversationService:
         else:
             yield self._emit_thinking(ctx, "⚠️ 知识库里没有找到直接相关的资料")
 
-            # Fallback to web search if RAG returns no results
+            # 降级到网络搜索如果 RAG 检索结果不足
             should_fallback = (
                 ctx.options.web_search
                 and web_search_decision
                 and web_search_decision.search_params
-                and not ctx.web_search_context  # Haven't done web search yet
+                and not ctx.web_search_context 
             )
 
             if should_fallback and web_search_decision:
@@ -671,12 +676,12 @@ class ConversationService:
         ctx: ChatContext,
     ) -> AsyncGenerator[str, None]:
         """
-        Generate LLM response with context.
+        生成 LLM 响应
 
         Yields:
-            Raw text chunks (not SSE formatted). Caller is responsible for formatting.
+            SSE 格式的原始文本块
         """
-        # Build combined context prompt
+        # 构建上下文prompt时，将视觉上下文、RAG 上下文和网络搜索上下文结合起来
         context_prompt = self._build_combined_context_prompt(
             rag_context=ctx.rag_context,
             web_context=ctx.web_search_context,
@@ -684,7 +689,7 @@ class ConversationService:
             vision_context=ctx.vision_context,
         )
 
-        # Build LLM messages
+        # 构建 LLM 输入消息，确保包含所有必要的上下文信息
         messages_for_llm = self.context_manager.build_llm_messages(
             ctx.history_dicts,
             compressed_count=ctx.compressed_count,
@@ -702,7 +707,7 @@ class ConversationService:
             yield chunk
 
     # =========================================================================
-    # Phase 5: Save Response
+    # 5. 保存响应
     # =========================================================================
 
     async def _save_response(
@@ -711,10 +716,10 @@ class ConversationService:
         full_response: str,
         intent_result: IntentDetectionResult,
     ) -> None:
-        """Save assistant response to database and schedule evaluation."""
+        """保存LLM响应到数据库并安排评估."""
         sources_data = [s.to_dict() for s in ctx.sources] if ctx.sources else None
 
-        # Calculate durations in milliseconds
+        # 计算思考和回答阶段的持续时间（毫秒）
         thinking_duration_ms = None
         answer_duration_ms = None
 
@@ -728,6 +733,7 @@ class ConversationService:
                 (ctx.answer_end_time - ctx.answer_start_time) * 1000
             )
 
+        # 保存对话消息到数据库
         message = await conversation_repository.add_message(
             conversation_id=ctx.conv_id,
             role="assistant",
@@ -739,7 +745,7 @@ class ConversationService:
             answer_duration_ms=answer_duration_ms,
         )
 
-        # Schedule RAG evaluation if context was used
+        # RAG 评估
         if intent_result.need_rag and ctx.rag_context and message:
             asyncio.create_task(
                 evaluation_service.schedule_evaluation(
@@ -758,7 +764,7 @@ class ConversationService:
     # =========================================================================
 
     def _emit_thinking(self, ctx: ChatContext, step: str) -> str:
-        """Helper to emit thinking step and update context."""
+        """辅助发送 Thinking 事件并同步更新上下文状态"""
         ctx.thinking_steps.append(step)
         return f"data: {json.dumps({'type': 'thinking', 'content': step})}\n\n"
 
@@ -770,12 +776,11 @@ class ConversationService:
         vision_context: str = "",
     ) -> str:
         """
-        Build context prompt combining vision, RAG, and web search results.
-        Clearly distinguishes between different context sources.
+        构建结合视觉、RAG 和网络搜索结果的上下文 prompt。
+        清晰地区分不同的上下文来源。
         """
         parts = []
 
-        # Add vision context first (if available)
         if vision_context.strip():
             parts.append(
                 "【图片工具分析结果】\n"
@@ -786,15 +791,13 @@ class ConversationService:
         if rewritten_query.strip():
             parts.append(f"【重写后的检索语句】\n{rewritten_query}\n")
 
-        # Add RAG context (local knowledge)
         if rag_context.strip():
             parts.append(
                 "【本地知识库工具分析结果】\n"
-                "下面是 CookHero 知识库中与当前问题最相关的资料，请参考回答：\n"
+                "下面是 CookAgent 知识库中与当前问题最相关的资料，请参考回答：\n"
                 f"{rag_context.strip()}\n"
             )
 
-        # Add web search context
         if web_context.strip():
             parts.append(
                 "【互联网搜索工具分析结果】\n"
@@ -810,22 +813,21 @@ class ConversationService:
         sources: Optional[List[Dict[str, Any]]],
     ) -> str:
         """
-        Format assistant message content with sources appended.
+        为 Assistant 消息内容附加引用来源信息
 
-        For LLM context, we append sources in a brief structured way so the model
-        knows what references were used in previous responses.
+        在构建 LLM 上下文时，会以简洁且结构化的方式附加来源信息，
+        使模型能够了解之前回答所参考的资料来源
 
         Args:
-            content: The assistant's response content
-            sources: Optional list of source dicts with type, info, url
+            content: Assistant 的回复内容
+            sources: 可选的来源列表，每个来源包含 type、info、url 等字段
 
         Returns:
-            Formatted content with sources appended
+            带有附加来源信息的内容字符串
         """
         if not sources:
             return content
 
-        # Format sources as brief appendix
         source_lines = []
         for src in sources:  # Limit to first 5
             src_type = src.get("type", "")
@@ -853,11 +855,11 @@ class ConversationService:
     async def get_conversation_history(
         self, conversation_id: str
     ) -> Optional[List[Dict]]:
-        """Get conversation history."""
+        """获取对话历史记录"""
         return await conversation_repository.get_history(conversation_id)
 
     async def clear_conversation(self, conversation_id: str) -> bool:
-        """Clear a conversation."""
+        """删除对话历史记录"""
         return await conversation_repository.clear(conversation_id)
 
     async def list_conversations(
@@ -866,10 +868,11 @@ class ConversationService:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict], int]:
-        """List all conversations with basic metadata for UI switching.
+        """
+        获取所有对话历史记录（用于 UI 切换）。
 
         Returns:
-            Tuple of (conversations list, total count)
+            (对话列表,总记录数）
         """
         return await conversation_repository.list_conversations(
             user_id=user_id,
@@ -878,9 +881,8 @@ class ConversationService:
         )
 
     async def update_conversation_title(self, conversation_id: str, title: str) -> bool:
-        """Update the title of a conversation."""
+        """更新会话标题"""
         return await conversation_repository.update_title(conversation_id, title)
 
 
-# Singleton instance
 conversation_service = ConversationService()

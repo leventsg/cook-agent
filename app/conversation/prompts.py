@@ -1,4 +1,3 @@
-# app/conversation/prompts.py
 """会话处理system prompt定义"""
 
 SYSTEM_PROMPT = """

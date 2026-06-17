@@ -1,4 +1,3 @@
-# app/conversation/__init__.py
 """
 CookAgent 会话模块
 
@@ -34,7 +33,7 @@ __all__ = [
     "SYSTEM_PROMPT",
     # Repository
     "conversation_repository",
-    # Context management (re-exported from app.context)
+    # Context management 
     "ContextManager",
     "ContextCompressor",
 ]

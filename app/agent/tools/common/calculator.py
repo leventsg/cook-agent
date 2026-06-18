@@ -1,4 +1,3 @@
-# app/agent/tools/common/calculator.py
 """
 计算器 Tool
 

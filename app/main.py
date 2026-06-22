@@ -41,37 +41,37 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized.")
 
-    # # 初始化 Agent 模块(default agent, tools, skills)
-    # logger.info("Initializing Agent module...")
-    # from app.agent import setup_agent_module, setup_mcp_servers
+    # 初始化 Agent 模块(default agent, tools, skills)
+    logger.info("Initializing Agent module...")
+    from app.agent import setup_agent_module, setup_mcp_servers
 
-    # setup_agent_module()
-    # logger.info("Agent module initialized.")
+    setup_agent_module()
+    logger.info("Agent module initialized.")
 
-    # # 注册 MCP 服务
-    # logger.info("Registering MCP servers...")
-    # try:
-    #     await setup_mcp_servers()
-    #     logger.info("MCP servers registered.")
-    # except Exception as e:
-    #     logger.warning(f"Failed to register MCP servers: {e}")
+    # 注册 MCP 服务
+    logger.info("Registering MCP servers...")
+    try:
+        await setup_mcp_servers()
+        logger.info("MCP servers registered.")
+    except Exception as e:
+        logger.warning(f"Failed to register MCP servers: {e}")
 
     # 初始化知识文档缓存
     logger.info("Initializing metadata cache...")
     await DocumentRepository.init_all_metadata_cache()
     logger.info("Metadata cache initialized.")
 
-    # # 清除 Redis 缓存并初始化 Redis 限流器
-    # if (
-    #     rag_service_instance.cache_manager
-    #     and rag_service_instance.cache_manager.redis_client
-    # ):
-    #     # 初始化限流器的Redis
-    #     rate_limiter.set_redis(rag_service_instance.cache_manager.redis_client)
-    #     logger.info("Rate limiter initialized with Redis.")
-    #     # 初始化认证服务的Redis
-    #     auth_service.set_redis(rag_service_instance.cache_manager.redis_client)
-    #     logger.info("Auth service initialized with Redis for login tracking.")
+    # 清除 Redis 缓存并初始化 Redis 限流器
+    if (
+        rag_service_instance.cache_manager
+        and rag_service_instance.cache_manager.redis_client
+    ):
+        # 初始化限流器的Redis
+        rate_limiter.set_redis(rag_service_instance.cache_manager.redis_client)
+        logger.info("Rate limiter initialized with Redis.")
+        # 初始化认证服务的Redis
+        auth_service.set_redis(rag_service_instance.cache_manager.redis_client)
+        logger.info("Auth service initialized with Redis for login tracking.")
 
     yield
     # 关闭
@@ -127,19 +127,19 @@ async def security_headers_middleware(request: Request, call_next):
     return response
 
 
-# @app.middleware("http")
-# async def rate_limit_middleware(request: Request, call_next):
-#     """限流中间件"""
-#     rate_limit_response = await rate_limiter.check_rate_limit(request)
-#     if rate_limit_response:
-#         audit_logger.rate_limit_exceeded(
-#             request=request,
-#             user_id=getattr(request.state, "user_id", None),
-#             endpoint=str(request.url.path),
-#         )
-#         return rate_limit_response
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """限流中间件"""
+    rate_limit_response = await rate_limiter.check_rate_limit(request)
+    if rate_limit_response:
+        audit_logger.rate_limit_exceeded(
+            request=request,
+            user_id=getattr(request.state, "user_id", None),
+            endpoint=str(request.url.path),
+        )
+        return rate_limit_response
 
-#     return await call_next(request)
+    return await call_next(request)
 
 @app.middleware("http")
 async def auth_gateway(request: Request, call_next):

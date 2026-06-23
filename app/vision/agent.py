@@ -8,15 +8,15 @@ CookAgent 视觉 Agent
 2. 判断内容是否与烹饪或食物相关
 3. 生成相应回复，或将请求交由主对话流程处理
 """
-import json
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.vision.provider import VisionProvider, ImageInput, vision_provider
-from app.utils.structured_json import extract_first_valid_json
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,16 @@ class VisionAnalysisResult:
             "direct_response": self.direct_response,
             "confidence": self.confidence,
         }
+
+
+class VisionAnalysisOutput(BaseModel):
+    is_food_related: bool
+    intent: str
+    description: str
+    extracted_info: Dict[str, Any] = Field(default_factory=dict)
+    direct_response: Optional[str] = None
+    confidence: float = 0.5
+
 
 # 视觉分析提示词模版
 VISION_ANALYSIS_PROMPT = """你是 CookAgent 的视觉理解模块，专门用于分析用户上传的图片并结合用户的文字提问来理解用户意图。
@@ -179,15 +189,15 @@ class VisionAgent:
 
         try:
             # Call vision model
-            raw_response = await self._provider.analyze(
+            output = await self._provider.analyze_json(
                 text=prompt,
                 images=images,
+                schema=VisionAnalysisOutput,
                 user_id=user_id,
                 conversation_id=conversation_id,
             )
 
-            result = self._parse_response(raw_response, user_query)
-            return result
+            return self._result_from_output(output)
 
         except Exception as e:
             logger.error(f"Vision analysis failed: {e}", exc_info=True)
@@ -201,69 +211,24 @@ class VisionAgent:
                 raw_response=str(e),
             )
     
-    def _parse_response(
-        self, raw_response: str, user_query: str
-    ) -> VisionAnalysisResult:
-        """解析模型的 JSON 响应，提取分析结果"""
+    def _result_from_output(self, output: VisionAnalysisOutput) -> VisionAnalysisResult:
+        """将结构化视觉输出转换为业务结果对象。"""
         try:
-            # 从响应中提取 JSON 响应对象
-            data = extract_first_valid_json(raw_response)
+            intent = VisionIntent(output.intent)
+        except ValueError:
+            intent = VisionIntent.UNCLEAR
 
-            if not data:
-                logger.warning(
-                    f"Failed to parse vision response as JSON: {raw_response[:200]}"
-                )
-                # 回退策略: 如果响应包含食物关键词，则将其分类为食物相关
-                is_food = self._check_food_keywords(raw_response)
-                return VisionAnalysisResult(
-                    is_food_related=is_food,
-                    intent=VisionIntent.FOOD_QUESTION
-                    if is_food
-                    else VisionIntent.GENERAL_IMAGE,
-                    description=raw_response[:200],
-                    extracted_info={},
-                    direct_response=None if is_food else raw_response,
-                    confidence=0.5,
-                    raw_response=raw_response,
-                )
-
-            # 解析意图
-            intent_str = data.get("intent", "unclear")
-            try:
-                intent = VisionIntent(intent_str)
-            except ValueError:
-                intent = VisionIntent.UNCLEAR
-
-            # 构建结果
-            is_food_related = data.get("is_food_related", False)
-
-            return VisionAnalysisResult(
-                is_food_related=is_food_related,
-                intent=intent,
-                description=data.get("description", ""),
-                extracted_info=data.get("extracted_info", {}),
-                direct_response=data.get("direct_response")
-                if not is_food_related
-                else None,
-                confidence=float(data.get("confidence", 0.5)),
-                raw_response=raw_response,
-            )
-
-        except Exception as e:
-            logger.error(f"Error parsing vision response: {e}", exc_info=True)
-            # 优雅回退: 如果响应包含食物关键词，则将其分类为食物相关
-            is_food = self._check_food_keywords(raw_response)
-            return VisionAnalysisResult(
-                is_food_related=is_food,
-                intent=VisionIntent.FOOD_QUESTION
-                if is_food
-                else VisionIntent.GENERAL_IMAGE,
-                description=raw_response[:200],
-                extracted_info={},
-                direct_response=None if is_food else raw_response[:200],
-                confidence=0.35,
-                raw_response=raw_response,
-            )
+        return VisionAnalysisResult(
+            is_food_related=output.is_food_related,
+            intent=intent,
+            description=output.description,
+            extracted_info=output.extracted_info,
+            direct_response=output.direct_response
+            if not output.is_food_related
+            else None,
+            confidence=float(output.confidence),
+            raw_response=output.model_dump_json(),
+        )
 
     def _check_food_keywords(self, text: str) -> bool:
         """检查文本是否包含食物关键词"""

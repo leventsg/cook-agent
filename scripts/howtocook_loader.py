@@ -4,11 +4,13 @@ HowToCook 数据加载器，用于数据导入流程
 该模块仅在数据导入阶段使用，不参与运行时请求处理
 """
 
+import argparse
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownHeaderTextSplitter
@@ -386,3 +388,167 @@ class HowToCookDataLoader:
 
         content_parts.append("欢迎根据口味挑选合适的菜谱")
         return "".join(content_parts)
+
+
+async def import_global_howtocook(
+    *,
+    config: Any | None = None,
+    document_repository: Any | None = None,
+    init_db_fn: Callable[[], Any] | None = None,
+    embedding_factory: Callable[[Any], Any] | None = None,
+    vector_store_factory: Callable[..., Any] | None = None,
+    sync_repo_fn: Callable[[], Any] | None = None,
+    sync: bool = False,
+    no_sync: bool = False,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Import global HowToCook documents into PostgreSQL and Milvus."""
+    if config is None:
+        from app.config import settings
+
+        config = settings
+    if sync_repo_fn is None:
+        from scripts.sync_data import sync_repo
+
+        sync_repo_fn = sync_repo
+
+    rag_config = config.rag
+    howtocook_config = rag_config.data_source.howtocook
+    base_path = Path(rag_config.paths.base_data_path)
+
+    if sync or (not base_path.exists() and not no_sync):
+        logger.info("Syncing HowToCook repository into %s", base_path)
+        sync_repo_fn()
+
+    data_path = base_path / howtocook_config.path_suffix
+    tips_path = base_path / howtocook_config.tips_path_suffix
+    if not data_path.exists():
+        raise FileNotFoundError(
+            "HowToCook data directory not found: "
+            f"{data_path}. Run `python -m scripts.sync_data` first, "
+            "or run this command without --no-sync."
+        )
+
+    loader = HowToCookDataLoader(
+        data_path=str(data_path),
+        tips_path=str(tips_path),
+        headers_to_split_on=[
+            tuple(header) for header in howtocook_config.headers_to_split_on
+        ],
+    )
+    documents = loader.load_documents()
+    if not documents:
+        raise RuntimeError(f"No HowToCook documents found under {data_path}")
+
+    chunks = loader.create_chunks(documents)
+    collection_name = rag_config.vector_store.collection_names["recipes"]
+    result = {
+        "dry_run": dry_run,
+        "documents": len(documents),
+        "chunks": len(chunks),
+        "collection_name": collection_name,
+    }
+
+    if dry_run:
+        logger.info(
+            "Dry run complete: documents=%d chunks=%d collection=%s",
+            len(documents),
+            len(chunks),
+            collection_name,
+        )
+        return result
+
+    if document_repository is None:
+        from app.database.document_repository import DocumentRepository
+
+        document_repository = DocumentRepository
+    if init_db_fn is None:
+        from app.database.session import init_db
+
+        init_db_fn = init_db
+    if embedding_factory is None:
+        from app.rag.embeddings.embedding_factory import get_embedding_model
+
+        embedding_factory = get_embedding_model
+    if vector_store_factory is None:
+        from app.rag.vector_stores.vector_store_factory import get_vector_store
+
+        vector_store_factory = get_vector_store
+
+    logger.info("Initializing database schema")
+    await init_db_fn()
+
+    logger.info("Deleting existing global recipes from PostgreSQL")
+    deleted_documents = await document_repository.delete_by_data_source("recipes")
+
+    logger.info("Creating %d global recipe documents", len(documents))
+    created_documents = await document_repository.create_batch(
+        [doc.to_dict() for doc in documents]
+    )
+
+    logger.info("Rebuilding Milvus recipes collection: %s", collection_name)
+    embeddings = embedding_factory(rag_config)
+    vector_store_factory(
+        milvus_config=config.database.milvus,
+        collection_name=collection_name,
+        embeddings=embeddings,
+        chunks=chunks,
+        force_rebuild=True,
+    )
+
+    result.update(
+        {
+            "deleted_documents": deleted_documents,
+            "created_documents": len(created_documents),
+        }
+    )
+    logger.info(
+        "HowToCook import complete: deleted_documents=%d created_documents=%d "
+        "created_chunks=%d collection=%s",
+        deleted_documents,
+        len(created_documents),
+        len(chunks),
+        collection_name,
+    )
+    return result
+
+
+def main() -> None:
+    """CLI entrypoint for `python -m scripts.howtocook_loader`."""
+    parser = argparse.ArgumentParser(
+        description="Import global HowToCook documents into PostgreSQL and Milvus."
+    )
+    parser.add_argument(
+        "--sync",
+        action="store_true",
+        help="Pull or clone HowToCook before importing.",
+    )
+    parser.add_argument(
+        "--no-sync",
+        action="store_true",
+        help="Do not auto-sync when the local HowToCook data directory is missing.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Parse documents and chunks without writing PostgreSQL or Milvus.",
+    )
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
+    result = asyncio.run(
+        import_global_howtocook(
+            sync=args.sync,
+            no_sync=args.no_sync,
+            dry_run=args.dry_run,
+        )
+    )
+    print(result)
+
+
+if __name__ == "__main__":
+    main()

@@ -8,10 +8,18 @@ LLM Provider - 统一的 LLM 初始化和调用入口
 from __future__ import annotations
 
 import random
-from typing import Any, AsyncIterator, List, Optional
+from typing import Any, AsyncIterator, List, Optional, Type, TypeVar
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_openai import ChatOpenAI
+from pydantic import BaseModel
 from app.config.llm_config import LLMConfig, LLMProfileConfig, LLMType
+from app.llm.structured_output import (
+    StructuredOutputError,
+    raw_content_from_message,
+    validate_structured_output,
+)
+
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
 class LLMProvider:
     """
@@ -214,6 +222,91 @@ class LLMInvoker:
         """异步调用 LLM"""
         kwargs = self._prepare_config(kwargs)
         return await self._get_llm_with_model().ainvoke(messages, **kwargs)
+
+    async def ainvoke_json(
+        self,
+        messages: list,
+        schema: Type[ModelT],
+        *,
+        max_retries: int = 2,
+        degrade: bool = True,
+        **kwargs: Any,
+    ) -> ModelT:
+        """异步调用 LLM，并按 Pydantic schema 返回结构化 JSON."""
+        if not isinstance(schema, type) or not issubclass(schema, BaseModel):
+            raise TypeError("schema must be a Pydantic BaseModel subclass")
+
+        call_kwargs = self._prepare_config(dict(kwargs))
+        retry_messages = list(messages)
+        last_raw_content = ""
+        last_error: Exception | None = None
+
+        for _ in range(max_retries + 1):
+            try:
+                llm = self._get_llm_with_model().with_structured_output(
+                    schema,
+                    method="json_schema",
+                    strict=True,
+                    include_raw=True,
+                )
+                result = await llm.ainvoke(retry_messages, **call_kwargs)
+                raw_content = raw_content_from_message(result.get("raw"))
+                last_raw_content = raw_content
+                last_error = result.get("parsing_error")
+                return validate_structured_output(
+                    schema,
+                    result.get("parsed"),
+                    raw_content,
+                )
+            except Exception as exc:
+                last_error = exc
+                retry_messages = self._with_structured_output_feedback(
+                    messages,
+                    schema,
+                    exc,
+                )
+
+        if degrade:
+            try:
+                degrade_kwargs = {
+                    **call_kwargs,
+                    "response_format": {"type": "json_object"},
+                }
+                response = await self._get_llm_with_model().ainvoke(
+                    retry_messages,
+                    **degrade_kwargs,
+                )
+                last_raw_content = raw_content_from_message(response)
+                return validate_structured_output(schema, None, last_raw_content)
+            except Exception as exc:
+                last_error = exc
+
+        raise StructuredOutputError(
+            schema_name=schema.__name__,
+            raw_content=last_raw_content,
+            parsing_error=last_error,
+            degraded=degrade,
+        )
+
+    @staticmethod
+    def _with_structured_output_feedback(
+        messages: list,
+        schema: Type[BaseModel],
+        error: Exception,
+    ) -> list:
+        """为结构化输出的重试请求附加纠错提示，引导模型返回符合要求的结果"""
+        return [
+            *messages,
+            {
+                "role": "user",
+                "content": (
+                    "上一次输出无法解析为要求的 JSON Schema。"
+                    f"目标 schema: {schema.__name__}。"
+                    f"解析错误: {error}。"
+                    "请只返回符合 schema 的 JSON 对象，不要解释，不要输出 Markdown。"
+                ),
+            },
+        ]
 
     async def ainvoke_with_tools(
         self, messages: list, tools: list, **kwargs: Any

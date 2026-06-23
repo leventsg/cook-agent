@@ -1,12 +1,11 @@
-import logging, json
-import re
+import logging
 from typing import Optional
 
 from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel
 
 from app.config import settings, LLMType
 from app.llm import LLMProvider, llm_context
-from app.utils.structured_json import extract_first_valid_json
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +56,10 @@ HISTORY_REWRITE_PROMPT = ChatPromptTemplate.from_template(
 )
 
 
+class QueryRewriteOutput(BaseModel):
+    query: str
+
+
 class QueryRewriter:
     """基于会话历史的查询改写，用于多轮对话检索"""
 
@@ -82,24 +85,20 @@ class QueryRewriter:
         if not history_text.strip():
             return current_query
 
-        debugc = ""
-
         try:
             template = HISTORY_REWRITE_PROMPT.format_prompt(
                 history=history_text,
             )
             with llm_context(self.MODULE_NAME, user_id, conversation_id):
-                response = await self._llm.ainvoke(list(template.messages))
-            content = response.content.strip()
-            debugc = content
-
-            result = extract_first_valid_json(content)
-            rewritten = result.get("query", current_query).strip()
+                result = await self._llm.ainvoke_json(
+                    list(template.messages),
+                    QueryRewriteOutput,
+                )
+            rewritten = result.query.strip()
 
             return rewritten
 
         except Exception as exc:  
             logger.warning("Failed to rewrite query with history: %s", exc)
-            logger.info("Rewrite debug content: %s", debugc)
 
         return current_query

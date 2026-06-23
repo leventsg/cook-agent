@@ -1,15 +1,13 @@
-import json
 import logging
 from dataclasses import dataclass
 from enum import Enum
-import re
 from typing import Optional
 
 from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel
 
 from app.config import settings, LLMType
 from app.llm import LLMProvider, llm_context
-from app.utils.structured_json import extract_first_valid_json
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +30,12 @@ class IntentDetectionResult:
     intent: QueryIntent
     reason: str
     raw: dict
+
+
+class IntentDetectionOutput(BaseModel):
+    need_rag: bool
+    intent: str
+    reason: str
 
 
 INTENT_DETECTION_PROMPT_TEMPLATE = """
@@ -140,21 +144,16 @@ class IntentDetector:
             conversation_id: 对话 ID（可选）
         """
         history_str = history_text
-        debugc = ""
-
         try:
             template = INTENT_DETECTION_PROMPT.format_prompt(
                 history=history_str,
             )
             with llm_context(self.MODULE_NAME, user_id, conversation_id):
-                response = await self._llm.ainvoke(list(template.messages))
-            content = response.content.strip()
-            debugc = content
-
-            result = extract_first_valid_json(content)
-            need_rag = result.get("need_rag", True)
-            intent_str = result.get("intent", "general_chat")
-            reason = result.get("reason", "")
+                result = await self._llm.ainvoke_json(
+                    list(template.messages),
+                    IntentDetectionOutput,
+                )
+            intent_str = result.intent
 
             intent_map = {
                 "recipe_search": QueryIntent.RECIPE_SEARCH,
@@ -166,17 +165,16 @@ class IntentDetector:
             intent = intent_map.get(intent_str, QueryIntent.GENERAL_CHAT)
 
             return IntentDetectionResult(
-                need_rag=need_rag,
+                need_rag=result.need_rag,
                 intent=intent,
-                reason=reason,
-                raw=result,
+                reason=result.reason,
+                raw=result.model_dump(),
             )
 
         except Exception as exc:
             logger.warning(
                 "Intent detection failed: %s. Defaulting to non-RAG mode.", exc
             )
-            logger.info(debugc)
             return IntentDetectionResult(
                 need_rag=False,
                 intent=QueryIntent.GENERAL_CHAT,

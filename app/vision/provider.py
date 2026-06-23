@@ -8,15 +8,17 @@ Vision Model Provider。
 import base64
 import logging
 from dataclasses import dataclass
-from typing import List, Optional, Union
+from typing import List, Optional, Type, TypeVar, Union
 
 from langchain_core.messages import BaseMessage, HumanMessage
+from pydantic import BaseModel
 
 from app.config import settings
 from app.config.llm_config import VisionLLMConfig
 from app.llm import get_usage_callbacks, llm_context
 
 logger = logging.getLogger(__name__)
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
 @dataclass
 class ImageInput:
@@ -175,6 +177,43 @@ class VisionProvider:
             return result
         except Exception as e:
             logger.error(f"Vision analysis failed: {e}", exc_info=True)
+            raise
+
+    async def analyze_json(
+        self,
+        text: str,
+        images: List[ImageInput],
+        schema: Type[ModelT],
+        system_prompt: Optional[str] = None,
+        user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+    ) -> ModelT:
+        """分析图像和文本内容，并按 Pydantic schema 返回结构化 JSON."""
+        if not self.is_enabled:
+            raise RuntimeError("Vision module is not enabled or API key is missing")
+
+        if not images:
+            raise ValueError("At least one image is required")
+
+        messages: List[BaseMessage] = []
+
+        if system_prompt:
+            from langchain_core.messages import SystemMessage
+
+            messages.append(SystemMessage(content=system_prompt))
+
+        messages.append(self.build_multimodal_message(text, images))
+
+        logger.info(
+            f"Vision structured analysis: text='{text[:50]}...', "
+            f"images={len(images)}, model={self.config.model_names[0]}"
+        )
+
+        try:
+            with llm_context(self.MODULE_NAME, user_id, conversation_id):
+                return await self._invoker.ainvoke_json(messages, schema)
+        except Exception as e:
+            logger.error(f"Vision structured analysis failed: {e}", exc_info=True)
             raise
 
     def validate_image(

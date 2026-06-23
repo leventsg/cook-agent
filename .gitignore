@@ -31,3 +31,6 @@ blog/
 
 # Docker
 deployments/volumes/
+
+# data
+data/

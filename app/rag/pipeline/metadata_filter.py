@@ -4,19 +4,16 @@
 生成可直接用于向量存储 expr 字段的布尔过滤表达式字符串
 """
 
-import json
 import logging
 import re
 from pathlib import Path
 from typing import Dict, List, Optional
-from urllib import response
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+from pydantic import BaseModel
 
 from app.config import settings, LLMType
 from app.llm import LLMProvider, llm_context
-from app.utils.structured_json import extract_first_valid_json
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +99,10 @@ REFERENCE_DIR = Path(__file__).resolve().parent / "reference"
 REFERENCE_FILES = ("operators.md",)
 
 
+class MetadataFilterOutput(BaseModel):
+    expr: str
+
+
 class MetadataFilterExtractor:
     """基于 LLM 的 Milvus 元数据过滤表达式生成器"""
 
@@ -129,8 +130,6 @@ class MetadataFilterExtractor:
         if not metadata_catalog:
             return None
 
-        debugc = ""
-
         metadata_schema = self._summarize_metadata(metadata_catalog)
         try:
             template = FILTER_EXPRESSION_PROMPT.format_prompt(
@@ -140,19 +139,17 @@ class MetadataFilterExtractor:
             )
             # 创建上下带 context 的调用，使用带 usage tracking 的 invoker（推荐）
             with llm_context(self.MODULE_NAME, user_id, conversation_id):
-                response = await self._llm.ainvoke(list(template.messages))
-            content = response.content.strip()
-            debugc = content
-
-            result = extract_first_valid_json(content)
-            raw = result.get("expr", "")
+                result = await self._llm.ainvoke_json(
+                    list(template.messages),
+                    MetadataFilterOutput,
+                )
+            raw = result.expr
 
             expression = self._clean_expression(raw)
             logger.info("Generated metadata expression: %s", expression or "NONE")
             return expression
         except Exception as exc:
             logger.warning("Metadata expression generation failed: %s", exc)
-            logger.info("Metadata filter debug content: %s", debugc)
             return None
 
     def _load_reference_material(self) -> str:

@@ -8,6 +8,8 @@ import logging
 from datetime import date, timedelta
 from typing import List, Optional
 
+from pydantic import BaseModel, Field
+
 from app.diet.database.repository import diet_repository, DietRepository
 from app.diet.database.models import (
     MealType,
@@ -20,6 +22,21 @@ from app.diet.prompts import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class DietLogItemOutput(BaseModel):
+    food_name: str
+    weight_g: Optional[float] = None
+    unit: Optional[str] = None
+    calories: Optional[float] = None
+    protein: Optional[float] = None
+    fat: Optional[float] = None
+    carbs: Optional[float] = None
+
+
+class DietLogParseOutput(BaseModel):
+    meal_type: Optional[str] = None
+    items: List[DietLogItemOutput] = Field(default_factory=list)
 
 
 def get_week_start_date(target_date: date) -> date:
@@ -268,19 +285,11 @@ class DietService:
         - "今天中午吃了牛肉面和一个苹果"
         - "早餐：两个鸡蛋、一杯牛奶"
         """
-        import json
         from app.config import settings
         from app.llm.provider import LLMProvider
 
         provider = LLMProvider(settings.llm)
-        invoker = provider.create_invoker(llm_type="fast")
-
-        def parse_ai_json(content: str) -> dict:
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-            return json.loads(content.strip())
+        invoker = provider.create_invoker(llm_type="normal", temperature=0.0)
 
         parsed = None
         used_vision = False
@@ -304,13 +313,13 @@ class DietService:
                             extra_text=extra_text
                         )
 
-                        response = await vision_provider.analyze(
+                        parsed = await vision_provider.analyze_json(
                             text=vision_prompt,
                             images=image_inputs,
+                            schema=DietLogParseOutput,
                             user_id=user_id,
                             conversation_id=None,
                         )
-                        parsed = parse_ai_json(response)
                         used_vision = True
             except Exception as e:
                 logger.warning(f"Failed to parse diet images: {e}")
@@ -320,22 +329,23 @@ class DietService:
 
         try:
             if parsed is None:
-                response = await invoker.ainvoke(
+                parsed = await invoker.ainvoke_json(
                     [
                         {
                             "role": "system",
                             "content": DIET_LOG_SYSTEM_PROMPT,
                         },
                         {"role": "user", "content": prompt},
-                    ]
+                    ],
+                    DietLogParseOutput,
                 )
-                parsed = parse_ai_json(response.content)
 
             # 使用解析结果
+            parsed_dict = parsed.model_dump()
             actual_meal_type = (
-                meal_type or parsed.get("meal_type") or MealType.SNACK.value
+                meal_type or parsed_dict.get("meal_type") or MealType.SNACK.value
             )
-            items = parsed.get("items", [])
+            items = parsed_dict.get("items", [])
 
             # 标记来源为 AI 解析
             for item in items:

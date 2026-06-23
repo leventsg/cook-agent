@@ -2,7 +2,7 @@ import json
 import re
 from typing import Any, Dict
 
-# JSON extraction regex
+# 正则表达式匹配 ```json ... ``` 代码块
 JSON_BLOCK_RE = re.compile(
     r"```json\s*([\s\S]*?)\s*```",
     re.IGNORECASE
@@ -10,7 +10,7 @@ JSON_BLOCK_RE = re.compile(
 
 
 def _decode_first_json_object(content: str) -> Dict[str, Any]:
-    """Scan text and decode the first complete JSON object."""
+    """逐字符扫描，找到第一个完整的 {} 对象"""
     decoder = json.JSONDecoder()
     for index, char in enumerate(content):
         if char != "{":
@@ -27,17 +27,18 @@ def _decode_first_json_object(content: str) -> Dict[str, Any]:
 
 def extract_first_valid_json(content: str) -> Dict[str, Any]:
     """Extract the first valid JSON object from LLM output."""
-    # Try to extract from code block first
+    # 优先从代码块提取json
     for match in JSON_BLOCK_RE.findall(content):
         try:
             return json.loads(match)
         except json.JSONDecodeError:
             continue
 
-    # Try to extract direct JSON object
+    # 如果没有代码块，尝试直接解析整个内容
     try:
         return json.loads(content)
     except json.JSONDecodeError:
         pass
-
+    
+    # 最后逐字符扫描寻找第一个完整的{}对象
     return _decode_first_json_object(content)

@@ -30,6 +30,7 @@ from app.llm.provider import (
     LLMProvider,
     LLMInvoker,
 )
+from app.llm.structured_output import StructuredOutputError
 from app.llm.callbacks import get_usage_callbacks
 from app.llm.context import (
     LLMCallContext,
@@ -43,6 +44,7 @@ __all__ = [
     # 核心类
     "LLMProvider",
     "LLMInvoker",
+    "StructuredOutputError",
     # 上下文管理
     "LLMCallContext",
     "llm_context",

@@ -141,7 +141,6 @@ class DietLogItemModel(Base):
     __table_args__ = (
         Index("ix_diet_log_items_user_date", "user_id", "log_date"),
         Index("ix_diet_log_items_user_date_meal", "user_id", "log_date", "meal_type"),
-        Index("ix_diet_log_items_log_id", "log_id"),
     )
 
     def to_dict(self) -> dict:
